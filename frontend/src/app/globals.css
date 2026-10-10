@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --canvas: #F8F6F2;
+    --forest: #1A2F25;
+    --forest-muted: #526359;
+    --forest-border: rgba(26, 47, 37, 0.12);
+    --forest-border-subtle: rgba(26, 47, 37, 0.07);
+    --forest-light: rgba(26, 47, 37, 0.03);
+    --clay: #E06D53;
+    --clay-hover: #CD5B42;
+    --ochre: #E5A93C;
+    --quartz-glass: rgba(255, 255, 255, 0.65);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--forest);
+    font-family: var(--font-sans), 'Plus Jakarta Sans', system-ui, sans-serif;
+    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
+  }
+
+  ::selection {
+    background-color: #E06D53;
+    color: #FFFFFF;
+  }
+}
+
+/* Glassmorphic utilities with strict zero radius */
+.glass-panel {
+  background-color: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(26, 47, 37, 0.12);
+  box-shadow: 0 12px 36px -10px rgba(26, 47, 37, 0.06);
+}
+
+.glass-panel-elevated {
+  background-color: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(26, 47, 37, 0.15);
+  box-shadow: 0 20px 48px -12px rgba(26, 47, 37, 0.08);
+}
+
+.glass-panel-active {
+  background-color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid #E06D53;
+  box-shadow: 0 16px 36px -8px rgba(224, 109, 83, 0.12);
+}
+
+.font-editorial {
+  font-family: var(--font-serif), 'Instrument Serif', Georgia, serif;
+}
+
+/* Custom animated flow dash */
+@keyframes flowDash {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+.animate-pipeline-flow {
+  stroke-dasharray: 6 6;
+  animation: flowDash 1.4s linear infinite;
+}
+
+@keyframes ambientPulse {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.65;
+  }
+  50% {
+    transform: translate(-30px, 20px) scale(1.08);
+    opacity: 0.85;
+  }
+}
+
+.animate-ambient-mesh {
+  animation: ambientPulse 18s ease-in-out infinite alternate;
+}

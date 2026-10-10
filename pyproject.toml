@@ -1,0 +1,7 @@
+[project]
+name = "Axiomflow"
+version = "1.0.0"
+description = "Business Automation Workflow System"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
