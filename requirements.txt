@@ -1,0 +1,10 @@
+fastapi
+fastapi[standard]
+langchain
+dotenv
+pydantic
+boto3
+langchain-google-genai
+langchain-groq
+langchain-ollama
+pymysql
