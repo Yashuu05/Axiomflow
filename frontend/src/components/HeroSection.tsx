@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 export default function HeroSection() {
   const [activeStage, setActiveStage] = useState<number>(2);
@@ -35,11 +36,11 @@ export default function HeroSection() {
 
         {/* Action Triggers */}
         <div className="flex flex-col sm:flex-row items-center gap-4 mt-10 w-full sm:w-auto">
-          <a
-            href="#deploy"
+          <Link
+            href="/signup"
             className="w-full sm:w-auto px-8 py-4 bg-[#E06D53] hover:bg-[#CD5B42] text-white font-sans text-sm tracking-wide font-medium transition-all duration-200 flex items-center justify-center gap-3 border border-[#E06D53] shadow-sm group"
           >
-            <span>Deploy First Agent</span>
+            <span>Register Business</span>
             <svg
               className="w-4 h-4 stroke-white stroke-[1.75] group-hover:translate-x-1 transition-transform"
               fill="none"
@@ -47,7 +48,7 @@ export default function HeroSection() {
             >
               <path strokeLinecap="square" strokeLinejoin="miter" d="M5 12h14m-6-6l6 6-6 6" />
             </svg>
-          </a>
+          </Link>
           <a
             href="#demo"
             className="w-full sm:w-auto px-8 py-4 bg-white/70 hover:bg-white text-[#1A2F25] font-sans text-sm tracking-wide font-medium transition-all duration-200 flex items-center justify-center gap-3 border border-[#1A2F25]/15 backdrop-blur-md shadow-sm"

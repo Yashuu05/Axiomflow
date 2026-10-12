@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import AxiomflowLogo from "./AxiomflowLogo";
 
 export default function Navbar() {
@@ -48,11 +49,11 @@ export default function Navbar() {
             <span className="w-1.5 h-1.5 bg-emerald-600"></span>
             SYS_HEALTH: 99.99%
           </span>
-          <a
-            href="#deploy"
+          <Link
+            href="/signup"
             className="px-5 py-2.5 bg-[#E06D53] hover:bg-[#CD5B42] text-white font-sans text-xs tracking-wider uppercase font-semibold transition-all duration-200 flex items-center gap-2.5 shadow-sm border border-[#E06D53] group"
           >
-            <span>Deploy First Agent</span>
+            <span>Register</span>
             <svg
               className="w-3.5 h-3.5 stroke-white group-hover:translate-x-1 transition-transform"
               fill="none"
@@ -61,7 +62,7 @@ export default function Navbar() {
             >
               <path strokeLinecap="square" strokeLinejoin="miter" d="M5 12h14m-6-6l6 6-6 6" />
             </svg>
-          </a>
+          </Link>
         </div>
 
         {/* Mobile menu button */}
@@ -111,13 +112,13 @@ export default function Navbar() {
           >
             04 // Live Simulation
           </a>
-          <a
-            href="#deploy"
+          <Link
+            href="/signup"
             onClick={() => setMobileMenuOpen(false)}
             className="mt-2 text-center py-3 bg-[#E06D53] text-white font-semibold"
           >
-            Deploy First Agent &rarr;
-          </a>
+            Register Business &rarr;
+          </Link>
         </div>
       )}
     </header>

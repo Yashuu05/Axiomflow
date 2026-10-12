@@ -39,11 +39,14 @@ CREATE TABLE IF NOT EXISTS `users` (
     `profession` VARCHAR(100) NULL,
     `mobile_no` VARCHAR(25) NULL,
     `role` VARCHAR(50) DEFAULT 'spectator',
+    `business_id` INT NULL,
     `password` VARCHAR(255) NOT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX `idx_users_role` (`role`),
-    INDEX `idx_users_department` (`department`)
+    INDEX `idx_users_department` (`department`),
+    INDEX `idx_users_business_id` (`business_id`),
+    CONSTRAINT `fk_users_business` FOREIGN KEY (`business_id`) REFERENCES `business_profile` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 """
 
