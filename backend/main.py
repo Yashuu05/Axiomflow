@@ -91,6 +91,26 @@ def hash_password(plain_password: str) -> str:
     salt = bcrypt.gensalt(rounds=12)
     return bcrypt.hashpw(plain_password.encode('utf-8'), salt).decode('utf-8')
 
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception:
+        return False
+
+class LoginRequest(BaseModel):
+    email: EmailStr = Field(..., description="Registered administrative email")
+    password: str = Field(..., min_length=1, description="Account password")
+
+class LoginResponse(BaseModel):
+    success: bool
+    message: str
+    user_id: str
+    admin_name: str
+    admin_email: str
+    role: str
+    business_id: Optional[int]
+    business_name: Optional[str]
+
 # --- API Endpoints ---
 
 @app.get("/health")
@@ -237,6 +257,82 @@ def register_business(payload: BusinessRegistrationRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected server error during registration: {str(e)}"
+        )
+    finally:
+        if conn:
+            conn.close()
+
+@app.post("/api/login", response_model=LoginResponse)
+def login_user(payload: LoginRequest):
+    """
+    Authenticates administrative or organizational user.
+    - Validates presence of email in `users`
+    - Verifies password against hashed bcrypt digest
+    - Fetches associated `business_profile` information
+    """
+    user_email = payload.email.strip().lower()
+    plain_password = payload.password
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            # Query user and join with business profile
+            query = """
+                SELECT 
+                    u.user_id,
+                    u.first_name,
+                    u.last_name,
+                    u.email,
+                    u.password,
+                    u.role,
+                    u.business_id,
+                    b.business_name
+                FROM `users` u
+                LEFT JOIN `business_profile` b ON u.business_id = b.id
+                WHERE u.email = %s
+                LIMIT 1;
+            """
+            cur.execute(query, (user_email,))
+            user_record = cur.fetchone()
+
+            if not user_record:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Invalid email: No registered administrator found with this email."
+                )
+
+            # Verify password
+            if not verify_password(plain_password, user_record["password"]):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid password: The password entered is incorrect."
+                )
+
+            full_name = f"{user_record['first_name']} {user_record['last_name'] or ''}".strip()
+
+            return LoginResponse(
+                success=True,
+                message="Authentication successful.",
+                user_id=user_record["user_id"],
+                admin_name=full_name,
+                admin_email=user_record["email"],
+                role=user_record.get("role") or "admin",
+                business_id=user_record.get("business_id"),
+                business_name=user_record.get("business_name")
+            )
+
+    except HTTPException:
+        raise
+    except pymysql.MySQLError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database query error during login: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error during authentication: {str(e)}"
         )
     finally:
         if conn:
