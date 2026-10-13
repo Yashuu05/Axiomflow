@@ -56,13 +56,19 @@ export default function SigninPage() {
         throw new Error(data.detail || "Authentication failed. Please verify your credentials.");
       }
 
-      setAuthSuccess({
+      const sessionData = {
         admin_name: data.admin_name,
         admin_email: data.admin_email,
         business_name: data.business_name,
         role: data.role,
         user_id: data.user_id,
-      });
+      };
+      try {
+        localStorage.setItem("axiomflow_session", JSON.stringify(sessionData));
+      } catch {
+        // ignore
+      }
+      setAuthSuccess(sessionData);
     } catch (err: unknown) {
       if (err instanceof Error) {
         setErrorMsg(err.message);
@@ -169,7 +175,7 @@ export default function SigninPage() {
 
               <div className="flex flex-col gap-3">
                 <Link
-                  href="/"
+                  href="/dashboard"
                   className="w-full py-3 bg-[#E06D53] hover:bg-[#CD5B42] text-white font-sans text-xs tracking-wider uppercase font-semibold transition-all text-center"
                 >
                   Enter Operational Dashboard &rarr;

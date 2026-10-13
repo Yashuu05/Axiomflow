@@ -178,6 +178,20 @@ export default function SignupPage() {
         throw new Error(data.detail || "Registration failed. Please check your credentials.");
       }
 
+      const sessionObj = {
+        admin_name: `${adminData.first_name} ${adminData.last_name}`.trim() || data.business_name,
+        admin_email: data.admin_email,
+        business_name: data.business_name,
+        role: "ADMINISTRATOR",
+        user_id: data.user_id,
+        business_id: data.business_id,
+      };
+      try {
+        localStorage.setItem("axiomflow_session", JSON.stringify(sessionObj));
+      } catch {
+        // ignore
+      }
+
       setSuccessData({
         business_id: data.business_id,
         user_id: data.user_id,
@@ -382,7 +396,7 @@ export default function SignupPage() {
 
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
-                href="/"
+                href="/dashboard"
                 className="px-6 py-3.5 bg-[#E06D53] hover:bg-[#CD5B42] text-white font-sans text-xs tracking-wider uppercase font-semibold transition-all text-center"
               >
                 Launch Dashboard Runtime &rarr;

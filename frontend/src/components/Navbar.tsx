@@ -50,8 +50,14 @@ export default function Navbar() {
             SYS_HEALTH: 99.99%
           </span>
           <Link
+            href="/dashboard"
+            className="px-3.5 py-2 text-[#1A2F25] hover:text-[#E06D53] border border-[#1A2F25]/20 hover:border-[#E06D53] bg-white/70 hover:bg-white font-sans text-xs tracking-wider uppercase font-semibold transition-all duration-200"
+          >
+            Dashboard
+          </Link>
+          <Link
             href="/signin"
-            className="px-4 py-2.5 text-[#1A2F25] hover:text-[#E06D53] border border-[#1A2F25]/20 hover:border-[#E06D53] bg-white/70 hover:bg-white font-sans text-xs tracking-wider uppercase font-semibold transition-all duration-200"
+            className="px-3.5 py-2 text-[#526359] hover:text-[#1A2F25] font-sans text-xs tracking-wider uppercase font-semibold transition-colors"
           >
             Sign In
           </Link>
@@ -119,6 +125,13 @@ export default function Navbar() {
             04 // Live Simulation
           </a>
           <div className="flex flex-col gap-2 mt-2">
+            <Link
+              href="/dashboard"
+              onClick={() => setMobileMenuOpen(false)}
+              className="text-center py-2.5 border border-[#E06D53] bg-white text-[#E06D53] font-semibold"
+            >
+              Enter Dashboard &rarr;
+            </Link>
             <Link
               href="/signin"
               onClick={() => setMobileMenuOpen(false)}
