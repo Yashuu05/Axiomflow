@@ -14,7 +14,10 @@ from tools.calendar_tools import (
     calendar_mcp,
     calendar_create_event,
     calendar_list_events,
-    calendar_check_availability
+    calendar_check_availability,
+    calendar_get_event,
+    calendar_update_event,
+    calendar_delete_event
 )
 
 from tools.sheet_tools import (
@@ -39,6 +42,9 @@ __all__ = [
     "calendar_create_event",
     "calendar_list_events",
     "calendar_check_availability",
+    "calendar_get_event",
+    "calendar_update_event",
+    "calendar_delete_event",
 
     # Sheets
     "sheets_mcp",

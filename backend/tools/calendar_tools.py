@@ -231,3 +231,158 @@ def calendar_check_availability(
         "is_available": is_available,
         "conflicts": conflicts
     }
+
+
+@calendar_mcp.tool()
+def calendar_get_event(
+    user_id: str,
+    account_email: str,
+    event_id: str,
+    calendar_id: str = "primary"
+) -> Dict[str, Any]:
+    """
+    Retrieves full details of a specific Google Calendar event by ID.
+
+    Args:
+        user_id: AxiomFlow User ID
+        account_email: User's connected Google account email
+        event_id: Google Calendar event ID
+        calendar_id: Calendar ID (default 'primary')
+
+    Returns:
+        Dict containing event details
+    """
+    service = get_authorized_service(
+        service_name="calendar",
+        version="v3",
+        user_id=user_id,
+        account_email=account_email
+    )
+
+    event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+    return {
+        "status": "success",
+        "operation": "calendar.get_event",
+        "event_id": event.get("id"),
+        "summary": event.get("summary"),
+        "description": event.get("description"),
+        "start": event.get("start"),
+        "end": event.get("end"),
+        "html_link": event.get("htmlLink"),
+        "status_code": event.get("status")
+    }
+
+
+@calendar_mcp.tool()
+def calendar_update_event(
+    user_id: str,
+    account_email: str,
+    event_id: str,
+    title: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    description: Optional[str] = None,
+    location: Optional[str] = None,
+    time_zone: str = "Asia/Kolkata",
+    calendar_id: str = "primary"
+) -> Dict[str, Any]:
+    """
+    Updates an existing Google Calendar event (e.g. changing start/end time, title, or description).
+    Official Google reference: https://developers.google.com/workspace/calendar/api/v3/reference/events/patch
+
+    Args:
+        user_id: AxiomFlow User ID
+        account_email: User's connected Google account email
+        event_id: Google Calendar event ID to update
+        title: Optional new event title
+        start_time: Optional new start time in ISO format (e.g. '2026-10-20T16:00:00')
+        end_time: Optional new end time in ISO format (e.g. '2026-10-20T17:00:00')
+        description: Optional new description
+        location: Optional new location
+        time_zone: Timezone identifier (default 'Asia/Kolkata')
+        calendar_id: Target calendar ID (default 'primary')
+
+    Returns:
+        Dict containing updated event summary, timing, and html link
+    """
+    service = get_authorized_service(
+        service_name="calendar",
+        version="v3",
+        user_id=user_id,
+        account_email=account_email
+    )
+
+    patch_body: Dict[str, Any] = {}
+    if title is not None:
+        patch_body["summary"] = title
+    if description is not None:
+        patch_body["description"] = description
+    if location is not None:
+        patch_body["location"] = location
+
+    if start_time is not None:
+        patch_body["start"] = {
+            "dateTime": start_time if "T" in start_time else f"{start_time}T00:00:00",
+            "timeZone": time_zone
+        }
+    if end_time is not None:
+        patch_body["end"] = {
+            "dateTime": end_time if "T" in end_time else f"{end_time}T00:00:00",
+            "timeZone": time_zone
+        }
+
+    updated_event = service.events().patch(
+        calendarId=calendar_id,
+        eventId=event_id,
+        body=patch_body
+    ).execute()
+
+    return {
+        "status": "success",
+        "operation": "calendar.update_event",
+        "event_id": updated_event.get("id"),
+        "summary": updated_event.get("summary"),
+        "start": updated_event.get("start"),
+        "end": updated_event.get("end"),
+        "html_link": updated_event.get("htmlLink")
+    }
+
+
+@calendar_mcp.tool()
+def calendar_delete_event(
+    user_id: str,
+    account_email: str,
+    event_id: str,
+    calendar_id: str = "primary"
+) -> Dict[str, Any]:
+    """
+    Deletes an event from Google Calendar by ID.
+    Official Google reference: https://developers.google.com/workspace/calendar/api/v3/reference/events/delete
+
+    Args:
+        user_id: AxiomFlow User ID
+        account_email: User's connected Google account email
+        event_id: Google Calendar event ID to delete
+        calendar_id: Target calendar ID (default 'primary')
+
+    Returns:
+        Dict confirming deletion status
+    """
+    service = get_authorized_service(
+        service_name="calendar",
+        version="v3",
+        user_id=user_id,
+        account_email=account_email
+    )
+
+    service.events().delete(
+        calendarId=calendar_id,
+        eventId=event_id
+    ).execute()
+
+    return {
+        "status": "success",
+        "operation": "calendar.delete_event",
+        "event_id": event_id,
+        "deleted": True
+    }
