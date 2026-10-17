@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Instrument_Serif, Plus_Jakarta_Sans } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const instrumentSerif = Instrument_Serif({
@@ -41,6 +42,12 @@ export default function RootLayout({
       lang="en"
       className={`${instrumentSerif.variable} ${plusJakartaSans.variable} scroll-smooth antialiased`}
     >
+      <head>
+        <Script
+          src="https://accounts.google.com/gsi/client"
+          strategy="afterInteractive"
+        />
+      </head>
       <body className="min-h-screen flex flex-col bg-[#F8F6F2] text-[#1A2F25] selection:bg-[#E06D53] selection:text-white">
         {children}
       </body>

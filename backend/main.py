@@ -40,6 +40,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include OAuth router
+from google_oauth import router as google_oauth_router
+app.include_router(google_oauth_router)
+
 def get_db_connection():
     return pymysql.connect(
         host=DB_HOST,

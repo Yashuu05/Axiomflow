@@ -79,6 +79,28 @@ CREATE TABLE IF NOT EXISTS `notifications` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 """
 
+TABLES['oauth_connections'] = """
+CREATE TABLE IF NOT EXISTS `oauth_connections` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `user_id` VARCHAR(64) NOT NULL,
+    `business_id` INT NOT NULL,
+    `provider` VARCHAR(50) NOT NULL DEFAULT 'google',
+    `account_email` VARCHAR(255) NOT NULL,
+    `encrypted_access_token` TEXT NOT NULL,
+    `encrypted_refresh_token` TEXT NULL,
+    `token_expiry` TIMESTAMP NULL,
+    `scopes` TEXT NOT NULL,
+    `status` ENUM('active', 'revoked', 'expired') DEFAULT 'active',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY `uq_user_provider_email` (`user_id`, `provider`, `account_email`),
+    INDEX `idx_oauth_user_id` (`user_id`),
+    INDEX `idx_oauth_business_id` (`business_id`),
+    CONSTRAINT `fk_oauth_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_oauth_business` FOREIGN KEY (`business_id`) REFERENCES `business_profile` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+"""
+
 def create_tables():
     print(f"Connecting to AWS RDS MySQL `{target_db}` at {host}:{port} as {user}...")
     try:
