@@ -26,7 +26,8 @@ from tools.sheet_tools import (
     sheets_read_values,
     sheets_append_values,
     sheets_update_values,
-    sheets_batch_update
+    sheets_batch_update,
+    sheets_clear_values
 )
 
 __all__ = [
@@ -52,5 +53,6 @@ __all__ = [
     "sheets_read_values",
     "sheets_append_values",
     "sheets_update_values",
-    "sheets_batch_update"
+    "sheets_batch_update",
+    "sheets_clear_values"
 ]

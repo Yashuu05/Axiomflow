@@ -262,3 +262,45 @@ def sheets_batch_update(
         "spreadsheet_id": spreadsheet_id,
         "replies_count": len(result.get("replies", []))
     }
+
+
+@sheets_mcp.tool()
+def sheets_clear_values(
+    user_id: str,
+    account_email: str,
+    spreadsheet_id: str,
+    range_name: str = "Sheet1!A1:Z100"
+) -> Dict[str, Any]:
+    """
+    Clears all values and content from a specified range in a Google Spreadsheet.
+    Official Google reference: https://developers.google.com/workspace/sheets/api/guides/values#clear_values
+
+    Args:
+        user_id: AxiomFlow User ID
+        account_email: User's connected Google account email
+        spreadsheet_id: Google Spreadsheet ID
+        range_name: A1 notation range to clear (default 'Sheet1!A1:Z100')
+
+    Returns:
+        Dict confirming cleared range and spreadsheet ID
+    """
+    service = get_authorized_service(
+        service_name="sheets",
+        version="v4",
+        user_id=user_id,
+        account_email=account_email
+    )
+
+    result = service.spreadsheets().values().clear(
+        spreadsheetId=spreadsheet_id,
+        range=range_name,
+        body={}
+    ).execute()
+
+    return {
+        "status": "success",
+        "operation": "sheets.clear",
+        "spreadsheet_id": spreadsheet_id,
+        "cleared_range": result.get("clearedRange", range_name)
+    }
+
