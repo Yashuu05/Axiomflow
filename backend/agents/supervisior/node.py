@@ -1,160 +1,98 @@
+import os
+import sys
 import json
-from typing import Dict, Any, Generator, Optional
+from typing import Dict, Any, Generator, Optional, List
 from langchain_core.messages import SystemMessage, HumanMessage
 
+# Ensure backend root is on sys.path
+backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
+
 from agents.config import settings
-from agents.model_factory import get_chat_model
+from agents.model_factory import get_resilient_chat_model
 from agents.state import WorkflowState
-from agents.supervisior.schemas import SupervisorPlan
-from agents.supervisior.prompts import SUPERVISOR_SYSTEM_PROMPT, PLANNER_USER_PROMPT_TEMPLATE
+from agents.supervisior.schemas import SupervisorPlan, StepProposal, SufficiencyAssessment
+from agents.supervisior.prompts import (
+    SUFFICIENCY_SYSTEM_PROMPT,
+    SUFFICIENCY_USER_PROMPT_TEMPLATE,
+    SUPERVISOR_SYSTEM_PROMPT,
+    PLANNER_USER_PROMPT_TEMPLATE
+)
 from agents.tools.registry import is_valid_capability
+
 
 class SupervisorAgent:
     """
     Supervisor / Planning Agent.
-    Interprets user requests in natural language, streams reasoning chunks,
-    and constructs a validated, structured execution plan using gemini-3.8-flash.
+    - Evaluates request sufficiency against business context.
+    - Asks batch clarification questions if critical information is missing.
+    - Constructs a validated, structured execution plan using ResilientChatModel (Gemini -> Groq -> Ollama).
     """
 
-    def __init__(self, model_name: str = "gemini-3.8-flash", temperature: float = 0.1):
+    def __init__(self, model_name: Optional[str] = None, temperature: float = 0.1):
         self.model_name = model_name
         self.temperature = temperature
-        self.llm = get_chat_model(
-            provider="gemini",
-            model_name=self.model_name,
-            temperature=self.temperature
+        self.resilient_model = get_resilient_chat_model(temperature=self.temperature)
+
+    def assess_sufficiency(
+        self,
+        request: str,
+        business_context: Dict[str, Any]
+    ) -> SufficiencyAssessment:
+        """
+        Evaluates whether user prompt has enough parameters for tool execution.
+        If critical fields (e.g. recipient email or meeting duration) are missing,
+        generates all necessary clarification questions in a single batch.
+        """
+        structured_llm = self.resilient_model.with_structured_output(SufficiencyAssessment)
+        
+        user_prompt = SUFFICIENCY_USER_PROMPT_TEMPLATE.format(
+            request=request,
+            business_name=business_context.get("business_name", "Axiomflow Business"),
+            business_email=business_context.get("email", business_context.get("account_email", "sender@business.com")),
+            website_url=business_context.get("website_url", "https://business.com"),
+            account_email=business_context.get("account_email", "")
         )
 
-    def generate_plan(self, request: str, user_id: str = "default_user", account_email: str = "") -> SupervisorPlan:
+        messages = [
+            SystemMessage(content=SUFFICIENCY_SYSTEM_PROMPT),
+            HumanMessage(content=user_prompt)
+        ]
+
+        assessment: SufficiencyAssessment = structured_llm.invoke(messages)
+        return assessment
+
+    def generate_plan(
+        self,
+        request: str,
+        business_context: Dict[str, Any],
+        clarification_answers: Optional[Dict[str, str]] = None
+    ) -> SupervisorPlan:
         """
         Directly generates a structured plan using structured output mode.
-        Validates produced capabilities against server registry.
+        Incorporates user business context and any clarification answers provided by HITL.
         """
-        structured_llm = self.llm.with_structured_output(SupervisorPlan)
+        structured_llm = self.resilient_model.with_structured_output(SupervisorPlan)
+
+        clarification_summary = "None provided / request is self-contained."
+        if clarification_answers:
+            clarification_summary = "\n".join([f"- {k}: {v}" for k, v in clarification_answers.items()])
+
         messages = [
             SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT),
-            HumanMessage(content="User Business Request:\n\"Schedule a client sync on Friday at 3 PM and notify the sales team via email\"\n\nTenant / Context:\n- User ID: usr_example\n- Account Email: user@example.com\n\nAnalyze this request and generate the structured execution plan following the schema."),
-            SystemMessage(content=(
-                '{"intent": "Schedule a meeting and email the sales team", "goal": "Create client sync event on calendar and send announcement email", "identified_services": ["calendar", "content", "gmail"], "steps": ['
-                '{"id": "step_1", "capability": "calendar.create_event", "description": "Create client sync calendar event for Friday 3 PM", "parameters": {"title": "Client Sync", "start_time": "Friday 15:00"}, "depends_on": [], "risk": "external_side_effect", "requires_approval": true},'
-                '{"id": "step_2", "capability": "content.draft_email", "description": "Draft client sync notification email to sales team", "parameters": {"subject": "Client Sync Meeting", "recipient": "sales team"}, "depends_on": ["step_1"], "risk": "no_external_side_effect", "requires_approval": false},'
-                '{"id": "step_3", "capability": "gmail.send", "description": "Send drafted client sync notification email to sales team", "parameters": {"to": "sales-team@example.com"}, "depends_on": ["step_1", "step_2"], "risk": "external_side_effect", "requires_approval": true}'
-                '], "clarification_needed": null, "reasoning": "Calendar event must be scheduled first, then email drafted with details, and sent after user approval."}'
-            )),
             HumanMessage(content=PLANNER_USER_PROMPT_TEMPLATE.format(
                 request=request,
-                user_id=user_id,
-                account_email=account_email
+                business_name=business_context.get("business_name", "AxiomFlow Client"),
+                business_email=business_context.get("email", "sender@business.com"),
+                website_url=business_context.get("website_url", ""),
+                account_email=business_context.get("account_email", ""),
+                clarification_summary=clarification_summary
             ))
         ]
 
         plan: SupervisorPlan = structured_llm.invoke(messages)
         self._validate_and_sanitize_plan(plan)
-        return plan
-
-    def stream_plan_chunks(
-        self,
-        request: str,
-        user_id: str = "default_user",
-        account_email: str = ""
-    ) -> Generator[str, None, SupervisorPlan]:
-        """
-        Streams natural language reasoning tokens in real-time as chunks,
-        then produces and validates the final structured plan.
-        Yields chunk text to caller, returns final SupervisorPlan.
-        """
-        prompt = (
-            f"{SUPERVISOR_SYSTEM_PROMPT}\n\n"
-            f"IMPORTANT: First provide a brief 1-2 sentence chain-of-thought analysis of the user request. "
-            f"Then output the execution plan JSON.\n\n"
-            f"User Request: \"{request}\""
-        )
-
-        messages = [
-            SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT),
-            HumanMessage(content=PLANNER_USER_PROMPT_TEMPLATE.format(
-                request=request,
-                user_id=user_id,
-                account_email=account_email
-            ))
-        ]
-
-        # 1. Stream thinking / reasoning chunks from gemini-3.8-flash while accumulating
-        accumulated_text = ""
-        for chunk in self.llm.stream(messages):
-            if chunk.content:
-                text_content = ""
-                if isinstance(chunk.content, list):
-                    for part in chunk.content:
-                        if isinstance(part, dict) and "text" in part:
-                            text_content += part["text"]
-                        elif isinstance(part, str):
-                            text_content += part
-                elif isinstance(chunk.content, str):
-                    text_content = chunk.content
-
-                if text_content:
-                    accumulated_text += text_content
-                    yield text_content
-
-        # 2. Extract and parse structured plan directly from accumulated stream to conserve quota
-        plan = None
-        try:
-            # Check for JSON block in markdown
-            raw = accumulated_text.strip()
-            if "```json" in raw:
-                json_part = raw.split("```json")[1].split("```")[0].strip()
-            elif "```" in raw:
-                json_part = raw.split("```")[1].split("```")[0].strip()
-            elif raw.startswith("{") and raw.endswith("}"):
-                json_part = raw
-            else:
-                json_part = ""
-
-            if json_part:
-                data = json.loads(json_part)
-                # Map alternate field names if model returned them
-                if "plan" in data and "steps" not in data:
-                    data["steps"] = data["plan"]
-                elif "execution_plan" in data and "steps" not in data:
-                    data["steps"] = data["execution_plan"]
-
-                # Ensure standard fields
-                if "intent" not in data:
-                    data["intent"] = data.get("summary") or data.get("request_summary") or data.get("intent_summary") or request
-                if "goal" not in data:
-                    data["goal"] = data.get("summary") or data.get("request_summary") or request
-
-                # Normalize steps list
-                normalized_steps = []
-                for s in data.get("steps", []):
-                    step_id = s.get("id") or s.get("step_id") or f"step_{len(normalized_steps)+1}"
-                    cap = s.get("capability", "gmail.send")
-                    desc = s.get("description", "")
-                    params = s.get("parameters", {})
-                    deps = s.get("depends_on") or s.get("dependencies") or []
-                    risk = s.get("risk", "read_only")
-                    appr = s.get("requires_approval", False)
-                    normalized_steps.append({
-                        "id": step_id,
-                        "capability": cap,
-                        "description": desc,
-                        "parameters": params,
-                        "depends_on": deps,
-                        "risk": risk,
-                        "requires_approval": appr
-                    })
-                data["steps"] = normalized_steps
-
-                plan = SupervisorPlan(**data)
-                self._validate_and_sanitize_plan(plan)
-        except Exception:
-            # Fallback if streaming output could not be directly parsed
-            plan = None
-
-        if plan is None:
-            plan = self.generate_plan(request, user_id=user_id, account_email=account_email)
-
         return plan
 
     def _validate_and_sanitize_plan(self, plan: SupervisorPlan) -> None:
@@ -173,19 +111,24 @@ class SupervisorAgent:
                 step.requires_approval = True
                 step.risk = "external_side_effect"
 
+
 def supervisor_planning_node(state: WorkflowState) -> Dict[str, Any]:
     """
     LangGraph node adapter for the Supervisor Planning agent.
     Receives WorkflowState, runs SupervisorAgent, and updates state with plan.
     """
     request = state.get("request", "")
-    user_id = state.get("user_id", "default_user")
-    account_email = state.get("account_email", "")
+    business_context = state.get("business_context", {})
+    clarification_answers = state.get("clarification_answers")
 
     agent = SupervisorAgent()
-    plan = agent.generate_plan(request=request, user_id=user_id, account_email=account_email)
+    plan = agent.generate_plan(
+        request=request,
+        business_context=business_context,
+        clarification_answers=clarification_answers
+    )
 
     return {
         "plan": plan.model_dump(),
-        "status": "running"
+        "status": "planning"
     }

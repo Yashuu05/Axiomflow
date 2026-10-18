@@ -9,16 +9,15 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from dotenv import load_dotenv
 
 # Ensure backend root is on sys.path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-backend_dir = os.path.abspath(os.path.join(current_dir, "..", ".."))
-if backend_dir not in sys.path:
-    sys.path.insert(0, backend_dir)
-
-from agents.config import settings
-from agents.model_factory import get_chat_model
-from agents.state import WorkflowState, EmailDraft
+backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if backend_path not in sys.path:
+    sys.path.insert(0, backend_path)
 
 load_dotenv()
+
+from agents.config import settings
+from agents.model_factory import get_resilient_chat_model
+from agents.state import WorkflowState, EmailDraft
 
 
 class EmailStructure(BaseModel):
@@ -32,95 +31,65 @@ class EmailStructure(BaseModel):
     assumptions: List[str] = Field(default_factory=list, description="Explicit assumptions made while drafting")
 
 
+CONTENT_AGENT_PROMPT = """You are the Email Content Specialist Agent for AxiomFlow, an enterprise business workflow automation platform.
+Your responsibility is to draft or revise clear, professional, context-aware emails informed by user instructions,
+business context, meeting details, and temporal awareness in Asia/Kolkata timezone.
+
+CRITICAL RULES:
+1. SENDER IDENTITY & SIGN-OFF:
+   - The sender is the registered business ({business_name}) with email ({business_email}).
+   - Always sign off the email with the business name or organization team (e.g. 'Best regards,\\n{business_name} Team').
+   - NEVER ask for the sender's email address or name; it is already defined.
+2. RECIPIENT ACCURACY:
+   - Use the provided recipient emails in the 'to' list.
+3. MEETING CONTEXT:
+   - If a meeting has been scheduled, incorporate the meeting date, time, and Google Meet URL directly into the body.
+4. REVISION INSTRUCTIONS:
+   - If user revision suggestions are provided, apply them accurately while maintaining professionalism.
+"""
+
+
 class EmailContentAgent:
     """
     Email Content Specialist Agent.
-    Responsible for drafting professional, structured email content (to, subject, body, cc, bcc)
-    informed by user instructions, Supervisor agent context, and Asia/Kolkata timezone awareness.
+    Drafts and updates professional emails using ResilientChatModel (Gemini -> Groq -> Ollama).
     """
 
-    # Schema alias for backward compatibility
     EmailStructure = EmailStructure
 
     def __init__(
         self,
-        provider: Optional[str] = None,
-        model_name: Optional[str] = None,
-        temperature: float = 0.3,
+        temperature: float = 0.2,
         timezone_str: str = "Asia/Kolkata"
     ):
-        self.provider = provider or settings.DEFAULT_LLM_PROVIDER
-        self.model_name = model_name or settings.DEFAULT_MODEL_NAME
         self.temperature = temperature
         self.timezone_str = timezone_str
         self.timezone = ZoneInfo(timezone_str)
-        self.llm = self.define_model(
-            provider=self.provider,
-            model_name=self.model_name,
-            temperature=self.temperature
-        )
-
-    def define_model(
-        self,
-        provider: Optional[str] = None,
-        model_name: Optional[str] = None,
-        temperature: float = 0.3
-    ):
-        """
-        Defines and configures the chat model via model factory.
-        """
-        if not (0.0 <= temperature <= 2.0):
-            raise ValueError(f"InvalidTemperatureValueException: invalid temperature {temperature}")
-
-        return get_chat_model(
-            provider=provider or self.provider,
-            model_name=model_name or self.model_name,
-            temperature=temperature
-        )
-
-    def _get_fallback_llm(self):
-        """Returns secondary fallback LLM if primary hits rate limits or quota."""
-        if self.provider == "gemini" and settings.GROQ_API_KEY:
-            return get_chat_model(provider="groq", model_name="openai/gpt-oss-20b", temperature=self.temperature)
-        elif self.provider == "groq" and settings.GEMINI_API_KEY:
-            return get_chat_model(provider="gemini", model_name="gemini-2.5-flash", temperature=self.temperature)
-        return None
+        self.resilient_model = get_resilient_chat_model(temperature=self.temperature)
 
     def get_current_time_str(self) -> str:
-        """Returns the current date, time, and day of week in the configured timezone."""
         now = datetime.now(self.timezone)
         return now.strftime("%A, %Y-%m-%d %I:%M:%S %p %Z")
 
-    def load_system_prompt(self) -> str:
-        """Loads system prompt from markdown file or falls back to default."""
-        prompt_file = os.path.join(current_dir, "content_agent_prompt.md")
-        if os.path.exists(prompt_file):
-            with open(prompt_file, "r", encoding="utf-8") as f:
-                return f.read().strip()
-        return (
-            "You are the Email Content Specialist Agent for AxiomFlow. "
-            "Draft clear, professional, context-aware emails according to user instructions "
-            "and supervisor context, formatted to the requested JSON schema."
-        )
-
-    def construct_system_message(self, supervisor_context: Optional[Dict[str, Any]] = None) -> SystemMessage:
-        """
-        Constructs system message with role guidelines, dynamic Asia/Kolkata time,
-        and contextual data passed by the Supervisor agent.
-        """
-        base_prompt = self.load_system_prompt()
+    def construct_system_message(
+        self,
+        business_context: Optional[Dict[str, Any]] = None,
+        supervisor_context: Optional[Dict[str, Any]] = None
+    ) -> SystemMessage:
+        biz = business_context or {}
+        business_name = biz.get("business_name", "AxiomFlow")
+        business_email = biz.get("email", biz.get("account_email", "admin@axiomflow.ai"))
         current_time = self.get_current_time_str()
 
         context_section = ""
         if supervisor_context:
-            context_section = f"\n\n### SUPERVISOR & WORKFLOW CONTEXT:\n{json.dumps(supervisor_context, indent=2, default=str)}"
+            context_section = f"\n\n### WORKFLOW & MEETING CONTEXT:\n{json.dumps(supervisor_context, indent=2, default=str)}"
 
         full_content = (
-            f"{base_prompt}\n\n"
+            f"{CONTENT_AGENT_PROMPT.format(business_name=business_name, business_email=business_email)}\n\n"
             f"### TEMPORAL CONTEXT (CRITICAL):\n"
             f"- Current Date and Time: {current_time}\n"
             f"- Timezone: {self.timezone_str}\n"
-            f"- Evaluate all relative dates ('today', 'tomorrow', 'next Monday', deadlines) strictly based on this current time."
             f"{context_section}"
         )
         return SystemMessage(content=full_content)
@@ -128,105 +97,106 @@ class EmailContentAgent:
     def draft_email(
         self,
         user_message: str,
-        supervisor_context: Optional[Dict[str, Any]] = None,
-        output_structure: type = EmailStructure
+        business_context: Optional[Dict[str, Any]] = None,
+        supervisor_context: Optional[Dict[str, Any]] = None
     ) -> EmailStructure:
-        """
-        Generates a structured email draft conforming to EmailStructure.
-        """
-        system_message = self.construct_system_message(supervisor_context=supervisor_context)
+        """Generates structured email draft."""
+        system_message = self.construct_system_message(
+            business_context=business_context,
+            supervisor_context=supervisor_context
+        )
         human_message = HumanMessage(content=user_message)
 
-        try:
-            structured_llm = self.llm.with_structured_output(output_structure)
-            result = structured_llm.invoke([system_message, human_message])
-            return result
-        except Exception as e:
-            fallback = self._get_fallback_llm()
-            if fallback:
-                print(f"[ContentAgent] Primary LLM failed ({e.__class__.__name__}). Switching to fallback provider...")
-                fallback_structured = fallback.with_structured_output(output_structure)
-                return fallback_structured.invoke([system_message, human_message])
-            raise
+        structured_llm = self.resilient_model.with_structured_output(EmailStructure)
+        result: EmailStructure = structured_llm.invoke([system_message, human_message])
+        return result
 
-    def draft_email_as_dict(
+    def revise_email(
         self,
-        user_message: str,
+        current_draft: Dict[str, Any],
+        user_feedback: str,
+        business_context: Optional[Dict[str, Any]] = None,
         supervisor_context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    ) -> EmailStructure:
         """
-        Convenience method returning email draft as a dictionary.
+        Revises an existing email draft based on user HITL feedback (Case 3: Update).
         """
-        draft = self.draft_email(user_message=user_message, supervisor_context=supervisor_context)
-        if hasattr(draft, "model_dump"):
-            return draft.model_dump()
-        return dict(draft)
+        system_message = self.construct_system_message(
+            business_context=business_context,
+            supervisor_context=supervisor_context
+        )
 
-    def run_email_model(
-        self,
-        sys_message: Any,
-        user_message: Any,
-        model: Any,
-        output_structure: type = EmailStructure
-    ) -> Optional[EmailStructure]:
-        """
-        Runs defined email model to print and return structured response.
-        Maintains backward compatibility with earlier script signature.
-        """
-        try:
-            model_with_structure = model.with_structured_output(output_structure)
-            response = model_with_structure.invoke([sys_message, user_message])
-            print("AI response:\n")
-            print(response)
-            return response
-        except Exception as e:
-            print(f"Error while running Email Agent: {str(e)}")
-            return None
+        revision_prompt = (
+            f"CURRENT EMAIL DRAFT:\n{json.dumps(current_draft, indent=2)}\n\n"
+            f"USER REVISION FEEDBACK / REQUESTED CHANGES:\n\"{user_feedback}\"\n\n"
+            f"Please regenerate the EmailStructure incorporating the user's requested revisions accurately."
+        )
+
+        structured_llm = self.resilient_model.with_structured_output(EmailStructure)
+        result: EmailStructure = structured_llm.invoke([
+            system_message,
+            HumanMessage(content=revision_prompt)
+        ])
+        return result
 
 
 def email_content_node(state: WorkflowState) -> Dict[str, Any]:
     """
-    LangGraph node adapter for the Email Content Specialist.
-    Consumes WorkflowState (user request, plan, retrieved context),
-    drafts the structured email, and updates workflow state.
+    LangGraph node adapter for drafting initial email content.
     """
     request = state.get("request", "")
-    plan = state.get("plan", {})
-    retrieved_context = state.get("retrieved_context", [])
+    business_context = state.get("business_context", {})
+    calendar_event = state.get("calendar_event")
+    clarification_answers = state.get("clarification_answers")
 
-    # Extract supervisor context
     supervisor_context = {
-        "plan_intent": plan.get("intent") if isinstance(plan, dict) else None,
-        "plan_goal": plan.get("goal") if isinstance(plan, dict) else None,
-        "steps": plan.get("steps") if isinstance(plan, dict) else [],
-        "retrieved_context": retrieved_context,
-        "tenant_id": state.get("tenant_id"),
+        "calendar_event": calendar_event,
+        "clarification_answers": clarification_answers,
+        "user_id": state.get("user_id"),
         "account_email": state.get("account_email")
     }
 
     agent = EmailContentAgent()
-    draft = agent.draft_email(user_message=request, supervisor_context=supervisor_context)
-    draft_dict = draft.model_dump() if hasattr(draft, "model_dump") else dict(draft)
+    draft = agent.draft_email(
+        user_message=request,
+        business_context=business_context,
+        supervisor_context=supervisor_context
+    )
 
     return {
-        "email_draft": draft_dict,
-        "status": "running"
+        "email_draft": draft.model_dump(),
+        "status": "awaiting_email_consent"
     }
 
 
-def EmailAgentPipeline():
-    """CLI test execution pipeline for testing Email Content Agent."""
-    email_agent = EmailContentAgent()
-    user_prompt = (
-        "Write a reminder email to 'yash@gmail.com' about the company meeting on 18 oct 2026 at 10:00pm, "
-        "meeting is about the product development process."
+def email_revision_node(state: WorkflowState) -> Dict[str, Any]:
+    """
+    LangGraph node adapter for revising email content when user requests updates (Case 3).
+    """
+    current_draft = state.get("email_draft", {})
+    user_feedback = state.get("user_feedback", "")
+    business_context = state.get("business_context", {})
+    calendar_event = state.get("calendar_event")
+    clarification_answers = state.get("clarification_answers")
+    current_revisions = state.get("revision_count", 0)
+
+    supervisor_context = {
+        "calendar_event": calendar_event,
+        "clarification_answers": clarification_answers,
+        "user_id": state.get("user_id"),
+        "account_email": state.get("account_email")
+    }
+
+    agent = EmailContentAgent()
+    updated_draft = agent.revise_email(
+        current_draft=current_draft,
+        user_feedback=user_feedback,
+        business_context=business_context,
+        supervisor_context=supervisor_context
     )
-    print("Running Email Content Agent Pipeline...")
-    draft = email_agent.draft_email(user_message=user_prompt)
-    print("\nStructured Email Draft Result:")
-    print(json.dumps(draft.model_dump(), indent=2))
-    return draft
 
-
-if __name__ == "__main__":
-    EmailAgentPipeline()
+    return {
+        "email_draft": updated_draft.model_dump(),
+        "revision_count": current_revisions + 1,
+        "status": "awaiting_email_consent"
+    }

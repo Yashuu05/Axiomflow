@@ -1,5 +1,31 @@
 from typing import List, Optional, Literal, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+class SufficiencyAssessment(BaseModel):
+    """
+    Assessment of whether the user request contains sufficient parameters
+    to execute calendar and email tools without ambiguity.
+    """
+    is_sufficient: bool = Field(
+        ...,
+        description="True ONLY if user request contains all necessary details: recipient email, date, time/duration. False if missing any critical parameters."
+    )
+    missing_fields: Optional[List[str]] = Field(
+        default=None,
+        description="List of parameter names missing from user prompt (e.g. 'receiver_email', 'meeting_duration', 'meeting_url')"
+    )
+    questions: Optional[List[str]] = Field(
+        default=None,
+        description="Numbered, complete list of questions to ask user simultaneously. Must be empty if is_sufficient is True."
+    )
+    reasoning: Optional[str] = Field(
+        default=None,
+        description="Concise rationale for sufficiency assessment"
+    )
+
+    @field_validator("missing_fields", "questions", mode="before")
+    def default_none_to_empty(cls, v):
+        return v if v is not None else []
 
 class StepProposal(BaseModel):
     """
