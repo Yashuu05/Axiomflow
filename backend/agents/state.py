@@ -87,6 +87,8 @@ class SheetResult(BaseModel):
     headers: List[str] = Field(default_factory=list, description="Column headers")
     values: List[List[Any]] = Field(default_factory=list, description="Row values inserted")
     csv_content: Optional[str] = Field(default=None, description="Exported CSV representation of sheet")
+    insights: Optional[str] = Field(default=None, description="Plain text summarized insights extracted from data")
+    summary_metrics: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Key computed metric indicators")
 
 
 class EmailDraft(BaseModel):

@@ -30,6 +30,12 @@ def summarize_node(state: WorkflowState) -> Dict[str, Any]:
     lines.append(f"Business Profile: {business_context.get('business_name')} ({business_context.get('email')})")
     lines.append(f"Original Request: \"{state.get('request', '')}\"")
 
+    if status == "policy_rejected":
+        refusal_msg = state.get("final_response", "Request blocked by safety and policy guardrails.")
+        lines.append("\nPolicy & Ethics Guardrail Decision:")
+        lines.append("  - Action:    EXECUTION BLOCKED & TERMINATED AT SUPERVISOR GATEWAY")
+        lines.append(f"  - Statement: {refusal_msg}")
+
     if state.get("clarification_answers"):
         lines.append("\nHITL Clarification Answers Provided:")
         for k, v in state["clarification_answers"].items():
@@ -53,6 +59,11 @@ def summarize_node(state: WorkflowState) -> Dict[str, Any]:
         lines.append(f"  - Columns:        {', '.join(sheet_result.get('headers', []))}")
         if email_draft and email_draft.get("attachments"):
             lines.append(f"  - Attached File:  {email_draft.get('attachments')[0].get('filename')}")
+        if sheet_result.get("insights"):
+            lines.append("  - Business Insights Analyzed:")
+            for insight_line in sheet_result.get("insights", "").split("\n"):
+                if insight_line.strip():
+                    lines.append(f"    {insight_line.strip()}")
 
     if email_draft:
         lines.append("\nEmail Dispatch Details:")

@@ -73,7 +73,9 @@ def calendar_create_event(
         event_body["location"] = location
 
     if attendees:
-        event_body["attendees"] = [{"email": email.strip()} for email in attendees]
+        valid_attendees = [email.strip() for email in attendees if isinstance(email, str) and "@" in email]
+        if valid_attendees:
+            event_body["attendees"] = [{"email": email} for email in valid_attendees]
 
     # Google Meet conference integration
     conference_version = 0

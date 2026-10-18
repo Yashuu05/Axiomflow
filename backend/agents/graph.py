@@ -19,22 +19,49 @@ from agents.nodes.approval import email_consent_hitl_node
 from agents.nodes.summarize import summarize_node
 
 
-def route_after_understanding(state: WorkflowState) -> Literal["clarify_hitl", "plan"]:
-    """Routes to HITL clarification if information is insufficient; otherwise to planning."""
+def route_after_understanding(state: WorkflowState) -> Literal["clarify_hitl", "plan", "summarize"]:
+    """Routes to summarize if policy rejected; to HITL clarification if information is insufficient; otherwise to planning."""
     status = state.get("status")
+    if status == "policy_rejected":
+        return "summarize"
     if status == "awaiting_clarification":
         return "clarify_hitl"
     return "plan"
 
 
-def route_after_plan(state: WorkflowState) -> Literal["execute_sheet", "execute_calendar"]:
-    """Routes to execute_sheet if the plan includes sheets capabilities; otherwise to execute_calendar."""
+def route_after_plan(state: WorkflowState) -> Literal["execute_sheet", "execute_calendar", "draft_email"]:
+    """Routes to execute_sheet if the plan includes sheets capabilities; otherwise to execute_calendar or draft_email."""
     plan = state.get("plan") or {}
     steps = plan.get("steps", [])
     has_sheets = any("sheets" in s.get("capability", "") for s in steps)
+    has_calendar = any("calendar" in s.get("capability", "") for s in steps)
     if has_sheets:
         return "execute_sheet"
-    return "execute_calendar"
+    elif has_calendar:
+        return "execute_calendar"
+    return "draft_email"
+
+
+def route_after_sheet(state: WorkflowState) -> Literal["execute_calendar", "draft_email"]:
+    """If plan also includes calendar events and calendar hasn't run yet, route to execute_calendar; otherwise draft_email."""
+    plan = state.get("plan") or {}
+    steps = plan.get("steps", [])
+    has_calendar = any("calendar" in s.get("capability", "") for s in steps)
+    calendar_event = state.get("calendar_event")
+    if has_calendar and not calendar_event:
+        return "execute_calendar"
+    return "draft_email"
+
+
+def route_after_calendar(state: WorkflowState) -> Literal["execute_sheet", "draft_email"]:
+    """If plan also includes sheet operations and sheet hasn't run yet, route to execute_sheet; otherwise draft_email."""
+    plan = state.get("plan") or {}
+    steps = plan.get("steps", [])
+    has_sheets = any("sheets" in s.get("capability", "") for s in steps)
+    sheet_result = state.get("sheet_result")
+    if has_sheets and not sheet_result:
+        return "execute_sheet"
+    return "draft_email"
 
 
 def route_after_email_consent(state: WorkflowState) -> Literal["execute_gmail", "abort_rejected", "revise_email"]:
@@ -82,28 +109,44 @@ def build_workflow_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
     workflow.add_edge(START, "retrieve_context")
     workflow.add_edge("retrieve_context", "understand")
 
-    # Sufficiency Branching: If missing info -> clarify_hitl; else -> plan
+    # Sufficiency Branching: If policy rejected -> summarize; if missing info -> clarify_hitl; else -> plan
     workflow.add_conditional_edges(
         "understand",
         route_after_understanding,
         {
+            "summarize": "summarize",
             "clarify_hitl": "clarify_hitl",
             "plan": "plan"
         }
     )
     workflow.add_edge("clarify_hitl", "plan")
 
-    # Specialist Routing: Plan -> execute_sheet OR execute_calendar -> draft_email
+    # Specialist Routing: Plan -> execute_sheet OR execute_calendar OR draft_email
     workflow.add_conditional_edges(
         "plan",
         route_after_plan,
         {
             "execute_sheet": "execute_sheet",
-            "execute_calendar": "execute_calendar"
+            "execute_calendar": "execute_calendar",
+            "draft_email": "draft_email"
         }
     )
-    workflow.add_edge("execute_sheet", "draft_email")
-    workflow.add_edge("execute_calendar", "draft_email")
+    workflow.add_conditional_edges(
+        "execute_sheet",
+        route_after_sheet,
+        {
+            "execute_calendar": "execute_calendar",
+            "draft_email": "draft_email"
+        }
+    )
+    workflow.add_conditional_edges(
+        "execute_calendar",
+        route_after_calendar,
+        {
+            "execute_sheet": "execute_sheet",
+            "draft_email": "draft_email"
+        }
+    )
     workflow.add_edge("draft_email", "email_consent_hitl")
 
     # Email Consent Branching: Accept -> Gmail MCP, Reject -> Abort, Update -> Revise -> Consent

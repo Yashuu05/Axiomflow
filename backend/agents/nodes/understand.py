@@ -13,8 +13,8 @@ from agents.supervisior.node import SupervisorAgent
 
 def understand_node(state: WorkflowState) -> Dict[str, Any]:
     """
-    LangGraph node: Evaluates user request against business context to determine
-    if information is sufficient for tool execution.
+    LangGraph node: Evaluates user request against safety, ethics, and business context to determine
+    if request is compliant and information is sufficient for tool execution.
     """
     request = state.get("request", "")
     business_context = state.get("business_context", {})
@@ -23,6 +23,21 @@ def understand_node(state: WorkflowState) -> Dict[str, Any]:
     assessment = agent.assess_sufficiency(request=request, business_context=business_context)
 
     assessment_dict = assessment.model_dump()
+    policy_check = assessment.policy_check
+
+    if policy_check and not policy_check.is_allowed:
+        print("\n" + "=" * 80)
+        print("     [UNDERSTAND NODE] EXECUTION TERMINATED BY POLICY GUARDRAIL")
+        print("=" * 80)
+        print(f"Refusal Reason:  {policy_check.violation_reason}")
+        print(f"Refusal Message: {policy_check.refusal_message}")
+        print("=" * 80 + "\n")
+        return {
+            "sufficiency_assessment": assessment_dict,
+            "final_response": policy_check.refusal_message,
+            "status": "policy_rejected"
+        }
+
     is_sufficient = assessment.is_sufficient
 
     return {

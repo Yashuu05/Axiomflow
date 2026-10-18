@@ -22,9 +22,13 @@ from agents.supervisior.prompts import (
 from agents.tools.registry import is_valid_capability
 
 
+from agents.policies_ethics import PolicyEthicsGuardrail, PolicyCheckResult
+
+
 class SupervisorAgent:
     """
     Supervisor / Planning Agent.
+    - Evaluates incoming queries against AxiomFlow Policies & Ethics guardrails.
     - Evaluates request sufficiency against business context.
     - Asks batch clarification questions if critical information is missing.
     - Constructs a validated, structured execution plan using ResilientChatModel (Gemini -> Groq -> Ollama).
@@ -34,6 +38,15 @@ class SupervisorAgent:
         self.model_name = model_name
         self.temperature = temperature
         self.resilient_model = get_resilient_chat_model(temperature=self.temperature)
+        self.guardrail = PolicyEthicsGuardrail(temperature=0.0)
+
+    def evaluate_policy(
+        self,
+        request: str,
+        business_context: Optional[Dict[str, Any]] = None
+    ) -> PolicyCheckResult:
+        """Evaluates user request against safety, ethics, and capability boundaries."""
+        return self.guardrail.evaluate_request(request, business_context)
 
     def assess_sufficiency(
         self,
@@ -41,10 +54,20 @@ class SupervisorAgent:
         business_context: Dict[str, Any]
     ) -> SufficiencyAssessment:
         """
-        Evaluates whether user prompt has enough parameters for tool execution.
-        If critical fields (e.g. recipient email or meeting duration) are missing,
-        generates all necessary clarification questions in a single batch.
+        Evaluates whether user prompt complies with policy and has enough parameters for tool execution.
+        If critical fields are missing, generates all necessary clarification questions in a single batch.
         """
+        # Step 0: Policy and Ethics Guardrail Gate
+        policy_result = self.evaluate_policy(request, business_context)
+        if not policy_result.is_allowed:
+            return SufficiencyAssessment(
+                is_sufficient=False,
+                missing_fields=[],
+                questions=[],
+                reasoning=f"Policy violation: {policy_result.violation_reason}",
+                policy_check=policy_result
+            )
+
         structured_llm = self.resilient_model.with_structured_output(SufficiencyAssessment)
         
         user_prompt = SUFFICIENCY_USER_PROMPT_TEMPLATE.format(
@@ -61,6 +84,7 @@ class SupervisorAgent:
         ]
 
         assessment: SufficiencyAssessment = structured_llm.invoke(messages)
+        assessment.policy_check = policy_result
 
         # Real-time Terminal Observability & Tracing
         print("\n" + "=" * 80)
@@ -86,6 +110,20 @@ class SupervisorAgent:
         Directly generates a structured plan using structured output mode.
         Incorporates user business context and any clarification answers provided by HITL.
         """
+        # Step 0: Policy Guardrail Gate
+        policy_result = self.evaluate_policy(request, business_context)
+        if not policy_result.is_allowed:
+            return SupervisorPlan(
+                intent="Blocked - Policy/Ethics Violation",
+                goal="Execution terminated by safety guardrails",
+                identified_services=[],
+                steps=[],
+                policy_check=policy_result,
+                is_policy_rejected=True,
+                refusal_message=policy_result.refusal_message,
+                reasoning=policy_result.violation_reason
+            )
+
         structured_llm = self.resilient_model.with_structured_output(SupervisorPlan)
 
         clarification_summary = "None provided / request is self-contained."
@@ -105,6 +143,12 @@ class SupervisorAgent:
         ]
 
         plan: SupervisorPlan = structured_llm.invoke(messages)
+        plan.policy_check = policy_result
+
+        # Ensure steps are populated if model returned an empty list for multi-task
+        if not plan.is_policy_rejected and len(plan.steps) == 0:
+            self._synthesize_fallback_steps(plan, request)
+
         self._validate_and_sanitize_plan(plan)
 
         # Real-time Terminal Observability & Tracing
@@ -126,6 +170,64 @@ class SupervisorAgent:
         print("=" * 80 + "\n")
 
         return plan
+
+    def _synthesize_fallback_steps(self, plan: SupervisorPlan, request: str) -> None:
+        """Synthesizes execution steps if LLM omitted them in structured output."""
+        req_lower = request.lower()
+        services = set(plan.identified_services)
+
+        step_idx = 1
+        prev_id = None
+
+        if "sheets" in services or "sheet" in req_lower:
+            step_id = f"step_{step_idx}"
+            cap = "sheets.read" if "read" in req_lower or "insight" in req_lower or "analyse" in req_lower else "sheets.create"
+            plan.steps.append(StepProposal(
+                id=step_id,
+                capability=cap,
+                description="Read/Create and analyze target Google Spreadsheet",
+                parameters={"title": "retail_sales" if "retail" in req_lower else "sales"},
+                risk="external_side_effect" if cap == "sheets.create" else "read_only",
+                requires_approval=cap == "sheets.create"
+            ))
+            prev_id = step_id
+            step_idx += 1
+
+        if "calendar" in services or "meet" in req_lower or "schedule" in req_lower:
+            step_id = f"step_{step_idx}"
+            plan.steps.append(StepProposal(
+                id=step_id,
+                capability="calendar.create_event",
+                description="Schedule Google Calendar meeting with Google Meet link",
+                parameters={"title": "Discussion Meeting"},
+                depends_on=[prev_id] if prev_id else [],
+                risk="external_side_effect",
+                requires_approval=True
+            ))
+            prev_id = step_id
+            step_idx += 1
+
+        if "gmail" in services or "email" in req_lower or "mail" in req_lower:
+            draft_id = f"step_{step_idx}"
+            plan.steps.append(StepProposal(
+                id=draft_id,
+                capability="content.draft_email",
+                description="Draft executive email with insights, meeting details, and attachment",
+                parameters={},
+                depends_on=[prev_id] if prev_id else [],
+                risk="no_external_side_effect",
+                requires_approval=False
+            ))
+            step_idx += 1
+            plan.steps.append(StepProposal(
+                id=f"step_{step_idx}",
+                capability="gmail.send",
+                description="Dispatch email to recipient via Gmail API",
+                parameters={},
+                depends_on=[draft_id],
+                risk="external_side_effect",
+                requires_approval=True
+            ))
 
     def _validate_and_sanitize_plan(self, plan: SupervisorPlan) -> None:
         """

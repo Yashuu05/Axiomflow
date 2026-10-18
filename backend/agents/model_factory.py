@@ -125,9 +125,32 @@ class FallbackStructuredOutputWrapper:
                         failed_gen = None
                         if hasattr(groq_err, "body") and isinstance(groq_err.body, dict):
                             failed_gen = groq_err.body.get("error", {}).get("failed_generation")
+                        if not failed_gen and hasattr(groq_err, "response"):
+                            try:
+                                r_json = groq_err.response.json()
+                                failed_gen = r_json.get("error", {}).get("failed_generation")
+                            except Exception:
+                                pass
+                        if not failed_gen:
+                            # Try string extraction from error message
+                            import re
+                            m_err = re.search(r"'failed_generation':\s*['\"](.*?)['\"]\s*\}\s*\}", str(groq_err), re.DOTALL)
+                            if m_err:
+                                failed_gen = m_err.group(1).encode().decode('unicode_escape')
+
                         if failed_gen:
                             import re
-                            cleaned_gen = re.sub(r'```json\s*', '', failed_gen)
+                            # 1. First attempt: check for ```json { ... } ``` code fences
+                            fence_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', failed_gen, re.DOTALL)
+                            if fence_match:
+                                try:
+                                    parsed = json.loads(fence_match.group(1))
+                                    return self.schema.model_validate(parsed)
+                                except Exception:
+                                    pass
+
+                            # 2. Second attempt: strip markdown and parse JSON block
+                            cleaned_gen = re.sub(r'```(?:json)?\s*', '', failed_gen)
                             cleaned_gen = re.sub(r'```\s*', '', cleaned_gen)
                             match = re.search(r'\{.*\}', cleaned_gen, re.DOTALL)
                             if match:
@@ -136,6 +159,8 @@ class FallbackStructuredOutputWrapper:
                                     if "arguments" in parsed:
                                         p_args = parsed["arguments"]
                                         if isinstance(p_args, str):
+                                            p_args = re.sub(r'```(?:json)?\s*', '', p_args)
+                                            p_args = re.sub(r'```\s*', '', p_args)
                                             p_args = json.loads(p_args)
                                         return self.schema.model_validate(p_args)
                                     return self.schema.model_validate(parsed)

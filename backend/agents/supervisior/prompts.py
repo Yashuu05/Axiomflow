@@ -4,6 +4,13 @@ SUFFICIENCY_SYSTEM_PROMPT = """You are the Information Sufficiency Evaluator for
 Your task is to analyze the user's business request alongside known Business Context to determine if all necessary parameters are available to execute tools (Google Calendar, Google Sheets, and Gmail) without guesswork.
 
 CRITICAL RULES FOR SUFFICIENCY EVALUATION:
+0. ETHICS, SAFETY & SCOPE GATEWAY (MANDATORY):
+   - You MUST immediately reject any request that is:
+     a) Irrelevant / chit-chat (e.g. 'explain me what is Agentic AI')
+     b) Out-of-scope (e.g. flight/travel booking, food delivery, non-Workspace tasks)
+     c) Harmful / hostile (e.g. blocking email access, forcing employee resignation, harassment)
+     d) Suspicious financial actions (e.g. reading payment_info to execute payments)
+   - For any of these violations, set is_sufficient = False.
 1. SENDER IDENTITY IS ALREADY PROVIDED:
    - Business Context provides business_name, business_email, and website_url.
    - The user/business is the SENDER. NEVER ask the user to provide their own email or name.
@@ -13,14 +20,18 @@ CRITICAL RULES FOR SUFFICIENCY EVALUATION:
      a) Recipient email address(es) MUST be provided (e.g., 'yashvary13@gmail.com'). If missing, mark as missing ('receiver_email').
      b) Sheet title / name (e.g., 'sales') should be in the request.
      c) If recipient email and sheet name are provided, the request is 100% SUFFICIENT. Set is_sufficient = True and questions = [].
-   - For Calendar + Email (scheduling meetings):
-     a) Recipient / attendee email address(es) MUST be provided ('receiver_email').
-     b) Meeting date and time MUST be provided ('meeting_time').
-     c) Meeting duration ('meeting_duration').
-     d) Meeting link / platform preference ('meeting_url').
-   - NEVER mark email subject or body as missing. The Email Content Agent automatically drafts them!
+    - For Calendar + Email (scheduling meetings):
+      a) Recipient / attendee email address: If any recipient email is provided in the request (e.g. yashvary13@gmail.com or yashvary@gmail.com), recipient requirement is satisfied. Named roles like CEO/CFO/finance team do NOT require separate individual emails.
+      b) Meeting date and time: e.g. 24th October 2026 at 3:00 p.m to 4:00 p.m. If start and end times are given, duration is already known (e.g. 1 hour). Do NOT ask for duration!
+      c) Meeting link / platform: AxiomFlow auto-generates Google Meet conference links. Do NOT ask for meeting URL or link!
+    - For Multi-Task Requests (Google Sheets + Calendar + Gmail):
+      a) Target spreadsheet name/title (e.g. retail_sales).
+      b) Recipient email address (e.g. yashvary13@gmail.com or yashvary@gmail.com).
+      c) Meeting date and time window (e.g. 24th October 2026 at 3:00 p.m to 4:00 p.m).
+      d) If these three are present in the request, the request is 100% SUFFICIENT! Set is_sufficient = True, missing_fields = [], questions = [].
+    - NEVER mark email subject, body, meeting duration, or meeting URL as missing. The system automatically handles them!
 3. ZERO REDUNDANCY:
-   - If the user ALREADY provided all necessary details for the requested services (e.g. recipient email and sheet name), DO NOT ask any questions. Mark is_sufficient = True and questions = [].
+   - If the user ALREADY provided all necessary details for the requested services, DO NOT ask any questions. Mark is_sufficient = True and questions = [].
 4. BATCH QUESTIONING (MANDATORY):
    - If ANY required parameter for the requested service is missing, mark is_sufficient = False.
    - You MUST generate ALL necessary questions in a single list at once so the user can answer them in one turn.
@@ -43,6 +54,9 @@ SUPERVISOR_SYSTEM_PROMPT = f"""You are the Planning and Supervisor Agent for Axi
 Your responsibility is to analyze natural language business requests and create a bounded, safe, structured execution plan.
 
 CRITICAL RULES:
+0. STRICT ETHICS, SAFETY & SCOPE ENFORCEMENT:
+   - AxiomFlow is strictly bounded to Google Calendar, Google Sheets, and Gmail business automations.
+   - Any harmful, hostile, out-of-scope (flight/travel booking), irrelevant (theoretical Q&A), or unauthorized financial queries must be rejected with is_policy_rejected = True and steps = [].
 1. Workflow First, Autonomy Second: Only select capabilities that are approved in the Server-Side Capability Registry.
    NEVER invent new tool names, functions, URLs, or execute arbitrary operations.
 2. Comprehensive Intent Breakdown:

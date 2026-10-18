@@ -1,14 +1,15 @@
 from typing import List, Optional, Literal, Dict, Any
 from pydantic import BaseModel, Field, field_validator
+from agents.policies_ethics import PolicyCheckResult
 
 class SufficiencyAssessment(BaseModel):
     """
     Assessment of whether the user request contains sufficient parameters
-    to execute the requested tools without ambiguity.
+    to execute the requested tools without ambiguity and complies with policies.
     """
     is_sufficient: bool = Field(
         ...,
-        description="True if user request contains all necessary details for the requested services (e.g. recipient email and sheet name for sheets/email requests). False ONLY if a critical required parameter for the requested service is missing."
+        description="True if user request contains all necessary details for the requested services and complies with policies. False if critical parameter missing or policy violated."
     )
     missing_fields: Optional[List[str]] = Field(
         default=None,
@@ -21,6 +22,10 @@ class SufficiencyAssessment(BaseModel):
     reasoning: Optional[str] = Field(
         default=None,
         description="Concise rationale for sufficiency assessment"
+    )
+    policy_check: Optional[PolicyCheckResult] = Field(
+        default=None,
+        description="Outcome of safety, ethics, and scope evaluation"
     )
 
     @field_validator("missing_fields", "questions", mode="before")
@@ -65,7 +70,7 @@ class SupervisorPlan(BaseModel):
         description="List of Google services involved, e.g. ['calendar', 'gmail']"
     )
     steps: List[StepProposal] = Field(
-        ...,
+        default_factory=list,
         description=(
             "Complete, ordered sequence of execution steps needed to fulfill the entire user request. "
             "For requests involving both a meeting and an email, you MUST include: "
@@ -81,4 +86,16 @@ class SupervisorPlan(BaseModel):
     reasoning: Optional[str] = Field(
         default=None,
         description="Brief explanation of why these steps and dependencies were chosen"
+    )
+    policy_check: Optional[PolicyCheckResult] = Field(
+        default=None,
+        description="Result of safety, ethics, and capability guardrail evaluation"
+    )
+    is_policy_rejected: bool = Field(
+        default=False,
+        description="True if the request was red-flagged and rejected under policies & ethics"
+    )
+    refusal_message: Optional[str] = Field(
+        default=None,
+        description="Polite user-facing refusal message terminating execution"
     )

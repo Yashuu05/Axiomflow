@@ -38,16 +38,18 @@ business context, spreadsheet data, meeting details, and temporal awareness in A
 CRITICAL RULES:
 1. SENDER IDENTITY & SIGN-OFF:
    - The sender is the registered business ({business_name}) with email ({business_email}).
-   - Always sign off the email with the business name or organization team (e.g. 'Best regards,\n{business_name} Team').
+   - Always sign off the email with the business name or organization team (e.g. 'Best regards,\\n{business_name} Team').
    - NEVER ask for the sender's email address or name; it is already defined.
 2. RECIPIENT ACCURACY:
-   - Use the provided recipient emails in the 'to' list (e.g. 'yashvary13@gmail.com').
+   - Use the provided recipient email(s) in the 'to' list (e.g. 'yashvary@gmail.com' or 'yashvary13@gmail.com').
 3. SPREADSHEET & BUSINESS REPORTING CONTEXT:
-   - If a Google Sheet (e.g., 'sales') was created in the workflow context, address the recipient (e.g., the CFO) informing them about the monthly sales sheet.
+   - If a Google Sheet (e.g., 'sales', 'retail_sales') was created or analyzed in the workflow context, address the recipient (e.g., the CFO, CEO, finance team) informing them about the sheet.
+   - If spreadsheet insights or metrics are present in context, EXPLICITLY explain and highlight those key insights (such as revenue, profit margins, top-performing product category, leading branches, and recommendations) clearly in the email body using bullet points.
    - Mention the spreadsheet title, summary of records, and include the live Google Spreadsheet URL directly in the email body.
-   - Note that the spreadsheet data is also attached as a CSV file for offline review and records.
+   - Explicitly inform the recipient that the complete spreadsheet data is attached as a CSV file for offline reference.
 4. MEETING CONTEXT:
-   - If a meeting has been scheduled, incorporate the meeting date, time, and Google Meet URL directly into the body.
+   - If a meeting has been scheduled (see calendar_event in context), incorporate the meeting date, time, attendees (e.g., CEO, CFO, finance team), and Google Meet URL directly into the body.
+   - Explain that the meeting is convened to discuss the insights and data from the sheet.
 5. REVISION INSTRUCTIONS:
    - If user revision suggestions are provided, apply them accurately while maintaining professionalism.
 """
@@ -160,7 +162,9 @@ def email_content_node(state: WorkflowState) -> Dict[str, Any]:
             "title": sheet_result.get("title") if sheet_result else None,
             "spreadsheet_url": sheet_result.get("spreadsheet_url") if sheet_result else None,
             "row_count": sheet_result.get("row_count") if sheet_result else None,
-            "headers": sheet_result.get("headers") if sheet_result else None
+            "headers": sheet_result.get("headers") if sheet_result else None,
+            "insights": sheet_result.get("insights") if sheet_result else None,
+            "summary_metrics": sheet_result.get("summary_metrics") if sheet_result else None
         } if sheet_result else None,
         "clarification_answers": clarification_answers,
         "user_id": state.get("user_id"),
@@ -222,7 +226,9 @@ def email_revision_node(state: WorkflowState) -> Dict[str, Any]:
             "title": sheet_result.get("title") if sheet_result else None,
             "spreadsheet_url": sheet_result.get("spreadsheet_url") if sheet_result else None,
             "row_count": sheet_result.get("row_count") if sheet_result else None,
-            "headers": sheet_result.get("headers") if sheet_result else None
+            "headers": sheet_result.get("headers") if sheet_result else None,
+            "insights": sheet_result.get("insights") if sheet_result else None,
+            "summary_metrics": sheet_result.get("summary_metrics") if sheet_result else None
         } if sheet_result else None,
         "clarification_answers": clarification_answers,
         "user_id": state.get("user_id"),
