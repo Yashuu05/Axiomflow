@@ -13,7 +13,7 @@ from agents.state import WorkflowState
 from agents.nodes.retrieve_context import retrieve_context_node
 from agents.nodes.understand import understand_node, interactive_clarification_node
 from agents.nodes.plan import plan_node
-from agents.nodes.execute import execute_calendar_node, execute_gmail_node, abort_rejected_node
+from agents.nodes.execute import execute_calendar_node, execute_sheet_node, execute_gmail_node, abort_rejected_node
 from agents.specialists.content_agent import email_content_node, email_revision_node
 from agents.nodes.approval import email_consent_hitl_node
 from agents.nodes.summarize import summarize_node
@@ -25,6 +25,16 @@ def route_after_understanding(state: WorkflowState) -> Literal["clarify_hitl", "
     if status == "awaiting_clarification":
         return "clarify_hitl"
     return "plan"
+
+
+def route_after_plan(state: WorkflowState) -> Literal["execute_sheet", "execute_calendar"]:
+    """Routes to execute_sheet if the plan includes sheets capabilities; otherwise to execute_calendar."""
+    plan = state.get("plan") or {}
+    steps = plan.get("steps", [])
+    has_sheets = any("sheets" in s.get("capability", "") for s in steps)
+    if has_sheets:
+        return "execute_sheet"
+    return "execute_calendar"
 
 
 def route_after_email_consent(state: WorkflowState) -> Literal["execute_gmail", "abort_rejected", "revise_email"]:
@@ -46,8 +56,8 @@ def build_workflow_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
     Constructs and compiles the complete LangGraph state machine connecting:
     - Context Loading & Sufficiency Assessment
     - Supervisor Planning & HITL Clarification
-    - Calendar Agent FastMCP execution
-    - Email Content Agent drafting
+    - Specialist Execution: Calendar Agent OR Sheet Agent via FastMCP
+    - Email Content Agent drafting with live link & CSV attachments
     - Email Consent HITL (Accept, Reject, Update Loop)
     - FastMCP Gmail Send execution
     - Audit Summarization
@@ -60,6 +70,7 @@ def build_workflow_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
     workflow.add_node("clarify_hitl", interactive_clarification_node)
     workflow.add_node("plan", plan_node)
     workflow.add_node("execute_calendar", execute_calendar_node)
+    workflow.add_node("execute_sheet", execute_sheet_node)
     workflow.add_node("draft_email", email_content_node)
     workflow.add_node("email_consent_hitl", email_consent_hitl_node)
     workflow.add_node("revise_email", email_revision_node)
@@ -82,8 +93,16 @@ def build_workflow_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
     )
     workflow.add_edge("clarify_hitl", "plan")
 
-    # Sequential execution: Plan -> Calendar FastMCP -> Email Content Agent -> Consent HITL
-    workflow.add_edge("plan", "execute_calendar")
+    # Specialist Routing: Plan -> execute_sheet OR execute_calendar -> draft_email
+    workflow.add_conditional_edges(
+        "plan",
+        route_after_plan,
+        {
+            "execute_sheet": "execute_sheet",
+            "execute_calendar": "execute_calendar"
+        }
+    )
+    workflow.add_edge("execute_sheet", "draft_email")
     workflow.add_edge("execute_calendar", "draft_email")
     workflow.add_edge("draft_email", "email_consent_hitl")
 

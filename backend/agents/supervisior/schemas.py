@@ -4,15 +4,15 @@ from pydantic import BaseModel, Field, field_validator
 class SufficiencyAssessment(BaseModel):
     """
     Assessment of whether the user request contains sufficient parameters
-    to execute calendar and email tools without ambiguity.
+    to execute the requested tools without ambiguity.
     """
     is_sufficient: bool = Field(
         ...,
-        description="True ONLY if user request contains all necessary details: recipient email, date, time/duration. False if missing any critical parameters."
+        description="True if user request contains all necessary details for the requested services (e.g. recipient email and sheet name for sheets/email requests). False ONLY if a critical required parameter for the requested service is missing."
     )
     missing_fields: Optional[List[str]] = Field(
         default=None,
-        description="List of parameter names missing from user prompt (e.g. 'receiver_email', 'meeting_duration', 'meeting_url')"
+        description="List of parameter names missing from user prompt (e.g. 'receiver_email', 'meeting_time')"
     )
     questions: Optional[List[str]] = Field(
         default=None,

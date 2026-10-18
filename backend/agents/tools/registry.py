@@ -68,6 +68,13 @@ CAPABILITY_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
 
     # Google Sheets Capabilities
+    "sheets.create": {
+        "description": "Creates a new Google Spreadsheet with a title and initial sheet tab name",
+        "service": "sheets",
+        "risk": "external_side_effect",
+        "requires_approval": True,
+        "parameters": ["title", "sheet_name"]
+    },
     "sheets.read": {
         "description": "Reads data values from a specified Google Spreadsheet and A1 range",
         "service": "sheets",

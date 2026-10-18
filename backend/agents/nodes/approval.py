@@ -30,7 +30,9 @@ def email_consent_hitl_node(state: WorkflowState) -> Dict[str, Any]:
     cc_recipients = ", ".join(draft.get("cc", [])) if draft.get("cc") else "None"
     subject = draft.get("subject", "No Subject")
     body = draft.get("body", "")
-    meet_link = calendar_event.get("meet_link") or "Auto-generated Google Meet"
+    meet_link = calendar_event.get("meet_link")
+    sheet_result = state.get("sheet_result") or {}
+    attachments = draft.get("attachments") or []
 
     # Check if consent decision was pre-supplied (e.g. In automated tests)
     pre_decision = state.get("email_consent", {}).get("decision")
@@ -47,7 +49,12 @@ def email_consent_hitl_node(state: WorkflowState) -> Dict[str, Any]:
         if cc_recipients != "None":
             print(f"CC:           {cc_recipients}")
         print(f"Subject:      {subject}")
-        print(f"Google Meet:  {meet_link}")
+        if sheet_result.get("title"):
+            print(f"Spreadsheet:  {sheet_result.get('title')} ({sheet_result.get('spreadsheet_url')})")
+        if attachments:
+            print(f"Attachments:  {', '.join([a.get('filename', 'attachment') for a in attachments])}")
+        if meet_link:
+            print(f"Google Meet:  {meet_link}")
         print("-" * 80)
         print("Proposed Email Body:")
         print(body.strip())

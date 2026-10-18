@@ -10,7 +10,15 @@ if backend_path not in sys.path:
 
 from agents.state import WorkflowState
 from agents.specialists.calendar_agent import CalendarAgent
+from agents.specialists.sheet_agent import sheet_agent_execution_node
 from tools.gmail_tools import gmail_mcp
+
+
+async def execute_sheet_node(state: WorkflowState) -> Dict[str, Any]:
+    """
+    LangGraph node: Executes Google Sheets creation and population via SheetAgent and FastMCP.
+    """
+    return await sheet_agent_execution_node(state)
 
 
 async def execute_calendar_node(state: WorkflowState) -> Dict[str, Any]:
@@ -62,11 +70,22 @@ async def execute_calendar_node(state: WorkflowState) -> Dict[str, Any]:
 
 async def execute_gmail_node(state: WorkflowState) -> Dict[str, Any]:
     """
-    LangGraph node: Dispatches approved email via FastMCP Gmail tool.
+    LangGraph node: Dispatches approved email via FastMCP Gmail tool with attachments.
     """
     user_id = state.get("user_id", "usr_72b30e7cd49e49e5")
     account_email = state.get("account_email", "")
     draft = state.get("email_draft") or {}
+    sheet_result = state.get("sheet_result")
+
+    attachments = draft.get("attachments") or []
+    if not attachments and sheet_result and sheet_result.get("csv_content"):
+        filename = f"{sheet_result.get('title', 'sales')}.csv"
+        attachments = [{
+            "filename": filename,
+            "content": sheet_result.get("csv_content"),
+            "maintype": "text",
+            "subtype": "csv"
+        }]
 
     tool_args = {
         "user_id": user_id,
@@ -75,8 +94,19 @@ async def execute_gmail_node(state: WorkflowState) -> Dict[str, Any]:
         "subject": draft.get("subject", "AxiomFlow Automated Notification"),
         "body": draft.get("body", ""),
         "cc": draft.get("cc", []),
-        "bcc": draft.get("bcc", [])
+        "bcc": draft.get("bcc", []),
+        "attachments": attachments
     }
+
+    print("\n" + "=" * 80)
+    print("             [GMAIL EXECUTION AGENT] SENDING EMAIL VIA FASTMCP")
+    print("=" * 80)
+    print(f"From (Authorized): {account_email}")
+    print(f"To:                {tool_args['to']}")
+    print(f"Subject:           {tool_args['subject']}")
+    print(f"Attachments:       {[a.get('filename') for a in attachments] if attachments else 'None'}")
+    print("-" * 80)
+    print("Invoking FastMCP 'gmail_send_email'...")
 
     mcp_result = await gmail_mcp.call_tool("gmail_send_email", tool_args)
     if mcp_result.is_error:
@@ -84,6 +114,12 @@ async def execute_gmail_node(state: WorkflowState) -> Dict[str, Any]:
 
     raw_data = mcp_result.structured_content or {}
     payload = raw_data.get("result", raw_data)
+
+    print("[GMAIL EXECUTION AGENT] [SUCCESS] Email dispatched successfully!")
+    print(f"  Message ID: {payload.get('message_id')}")
+    print(f"  Thread ID:  {payload.get('thread_id')}")
+    print(f"  Has Attachments: {payload.get('has_attachments')}")
+    print("=" * 80 + "\n")
 
     outcomes = list(state.get("tool_outcomes", []))
     outcomes.append({

@@ -29,5 +29,5 @@ def plan_node(state: WorkflowState) -> Dict[str, Any]:
 
     return {
         "plan": plan.model_dump(),
-        "status": "executing_calendar"
+        "status": "executing_sheet" if any("sheets" in s.capability for s in plan.steps) else "executing_calendar"
     }

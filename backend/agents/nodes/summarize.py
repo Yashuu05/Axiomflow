@@ -43,6 +43,17 @@ def summarize_node(state: WorkflowState) -> Dict[str, Any]:
         lines.append(f"  - Meet Link:   {calendar_event.get('meet_link') or 'None'}")
         lines.append(f"  - Attendees:   {', '.join(calendar_event.get('attendees', []))}")
 
+    sheet_result = state.get("sheet_result")
+    if sheet_result:
+        lines.append("\nGoogle Spreadsheet Created & Populated:")
+        lines.append(f"  - Title:          {sheet_result.get('title')}")
+        lines.append(f"  - Spreadsheet ID: {sheet_result.get('spreadsheet_id')}")
+        lines.append(f"  - Web URL:        {sheet_result.get('spreadsheet_url')}")
+        lines.append(f"  - Records Added:  {sheet_result.get('row_count')} data rows inserted")
+        lines.append(f"  - Columns:        {', '.join(sheet_result.get('headers', []))}")
+        if email_draft and email_draft.get("attachments"):
+            lines.append(f"  - Attached File:  {email_draft.get('attachments')[0].get('filename')}")
+
     if email_draft:
         lines.append("\nEmail Dispatch Details:")
         lines.append(f"  - Recipient:   {', '.join(email_draft.get('to', []))}")

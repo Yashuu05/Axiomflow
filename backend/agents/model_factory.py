@@ -117,14 +117,31 @@ class FallbackStructuredOutputWrapper:
                 )
                 if provider == "groq":
                     import json
-                    bound = chat_model.bind_tools([self.schema])
-                    raw_msg = bound.invoke(messages, **kwargs)
-                    calls = raw_msg.tool_calls or raw_msg.invalid_tool_calls
-                    if calls:
-                        args = calls[0].get("args", {})
-                        if isinstance(args, str):
-                            args = json.loads(args)
-                        return self.schema.model_validate(args)
+                    try:
+                        structured_llm = chat_model.with_structured_output(self.schema, **self.structured_kwargs)
+                        result = structured_llm.invoke(messages, **kwargs)
+                        return result
+                    except Exception as groq_err:
+                        failed_gen = None
+                        if hasattr(groq_err, "body") and isinstance(groq_err.body, dict):
+                            failed_gen = groq_err.body.get("error", {}).get("failed_generation")
+                        if failed_gen:
+                            import re
+                            cleaned_gen = re.sub(r'```json\s*', '', failed_gen)
+                            cleaned_gen = re.sub(r'```\s*', '', cleaned_gen)
+                            match = re.search(r'\{.*\}', cleaned_gen, re.DOTALL)
+                            if match:
+                                try:
+                                    parsed = json.loads(match.group(0))
+                                    if "arguments" in parsed:
+                                        p_args = parsed["arguments"]
+                                        if isinstance(p_args, str):
+                                            p_args = json.loads(p_args)
+                                        return self.schema.model_validate(p_args)
+                                    return self.schema.model_validate(parsed)
+                                except Exception:
+                                    pass
+                        raise groq_err
 
                 structured_llm = chat_model.with_structured_output(self.schema, **self.structured_kwargs)
                 result = structured_llm.invoke(messages, **kwargs)
@@ -163,7 +180,7 @@ class ResilientChatModel:
     """
     Production-ready Multi-Layer Fallback Chat Model.
     Layer 1: Google Gemini 3.8 Flash (via langchain-google-genai)
-    Layer 2: OpenAI/GPT-OSS-20b (via langchain-groq)
+    Layer 2: Qwen 3.8 27B / OpenAI GPT-OSS (via langchain-groq)
     Layer 3: Qwen 3:8B (via langchain-ollama)
     
     Catches rate limits, resource exhaustion, quota errors, and API timeouts.
@@ -177,6 +194,8 @@ class ResilientChatModel:
         self.temperature = temperature
         self.layer_configs = custom_layers or [
             ("gemini", "gemini-3.8-flash"),
+            ("groq", "openai/gpt-oss-120b"),
+            ("groq", "qwen/qwen3.8-27b"),
             ("groq", "openai/gpt-oss-20b"),
             ("ollama", "qwen3:8b")
         ]

@@ -61,6 +61,19 @@ class SupervisorAgent:
         ]
 
         assessment: SufficiencyAssessment = structured_llm.invoke(messages)
+
+        # Real-time Terminal Observability & Tracing
+        print("\n" + "=" * 80)
+        print("          [SUPERVISOR AGENT] REQUEST SUFFICIENCY ASSESSMENT")
+        print("=" * 80)
+        print(f"Request: \"{request}\"")
+        print(f"is_sufficient:   {assessment.is_sufficient}")
+        print(f"missing_fields:  {assessment.missing_fields}")
+        print(f"questions:       {assessment.questions}")
+        if assessment.reasoning:
+            print(f"reasoning:       {assessment.reasoning}")
+        print("=" * 80 + "\n")
+
         return assessment
 
     def generate_plan(
@@ -93,6 +106,25 @@ class SupervisorAgent:
 
         plan: SupervisorPlan = structured_llm.invoke(messages)
         self._validate_and_sanitize_plan(plan)
+
+        # Real-time Terminal Observability & Tracing
+        print("\n" + "=" * 80)
+        print("          [SUPERVISOR AGENT] STRUCTURED EXECUTION PLAN GENERATED")
+        print("=" * 80)
+        print(f"Intent:              {plan.intent}")
+        print(f"Goal:                {plan.goal}")
+        print(f"Identified Services: {plan.identified_services}")
+        print("-" * 80)
+        print("Execution Steps:")
+        for idx, step in enumerate(plan.steps, 1):
+            print(f"  [{idx}] Step ID:     {step.id}")
+            print(f"      Capability:  {step.capability}")
+            print(f"      Description: {step.description}")
+            print(f"      Parameters:  {json.dumps(step.parameters)}")
+            print(f"      Depends On:  {step.depends_on}")
+            print(f"      Approval:    {step.requires_approval} (Risk: {step.risk})")
+        print("=" * 80 + "\n")
+
         return plan
 
     def _validate_and_sanitize_plan(self, plan: SupervisorPlan) -> None:
@@ -107,7 +139,7 @@ class SupervisorAgent:
                     f"Security violation: Planner proposed unauthorized capability '{step.capability}'. "
                     f"This capability is not in the server registry."
                 )
-            if step.capability in ("gmail.send", "calendar.create_event", "sheets.append", "sheets.update"):
+            if step.capability in ("gmail.send", "calendar.create_event", "sheets.create", "sheets.append", "sheets.update"):
                 step.requires_approval = True
                 step.risk = "external_side_effect"
 

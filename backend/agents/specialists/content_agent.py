@@ -33,18 +33,22 @@ class EmailStructure(BaseModel):
 
 CONTENT_AGENT_PROMPT = """You are the Email Content Specialist Agent for AxiomFlow, an enterprise business workflow automation platform.
 Your responsibility is to draft or revise clear, professional, context-aware emails informed by user instructions,
-business context, meeting details, and temporal awareness in Asia/Kolkata timezone.
+business context, spreadsheet data, meeting details, and temporal awareness in Asia/Kolkata timezone.
 
 CRITICAL RULES:
 1. SENDER IDENTITY & SIGN-OFF:
    - The sender is the registered business ({business_name}) with email ({business_email}).
-   - Always sign off the email with the business name or organization team (e.g. 'Best regards,\\n{business_name} Team').
+   - Always sign off the email with the business name or organization team (e.g. 'Best regards,\n{business_name} Team').
    - NEVER ask for the sender's email address or name; it is already defined.
 2. RECIPIENT ACCURACY:
-   - Use the provided recipient emails in the 'to' list.
-3. MEETING CONTEXT:
+   - Use the provided recipient emails in the 'to' list (e.g. 'yashvary13@gmail.com').
+3. SPREADSHEET & BUSINESS REPORTING CONTEXT:
+   - If a Google Sheet (e.g., 'sales') was created in the workflow context, address the recipient (e.g., the CFO) informing them about the monthly sales sheet.
+   - Mention the spreadsheet title, summary of records, and include the live Google Spreadsheet URL directly in the email body.
+   - Note that the spreadsheet data is also attached as a CSV file for offline review and records.
+4. MEETING CONTEXT:
    - If a meeting has been scheduled, incorporate the meeting date, time, and Google Meet URL directly into the body.
-4. REVISION INSTRUCTIONS:
+5. REVISION INSTRUCTIONS:
    - If user revision suggestions are provided, apply them accurately while maintaining professionalism.
 """
 
@@ -83,7 +87,7 @@ class EmailContentAgent:
 
         context_section = ""
         if supervisor_context:
-            context_section = f"\n\n### WORKFLOW & MEETING CONTEXT:\n{json.dumps(supervisor_context, indent=2, default=str)}"
+            context_section = f"\n\n### WORKFLOW, SPREADSHEET & MEETING CONTEXT:\n{json.dumps(supervisor_context, indent=2, default=str)}"
 
         full_content = (
             f"{CONTENT_AGENT_PROMPT.format(business_name=business_name, business_email=business_email)}\n\n"
@@ -147,10 +151,17 @@ def email_content_node(state: WorkflowState) -> Dict[str, Any]:
     request = state.get("request", "")
     business_context = state.get("business_context", {})
     calendar_event = state.get("calendar_event")
+    sheet_result = state.get("sheet_result")
     clarification_answers = state.get("clarification_answers")
 
     supervisor_context = {
         "calendar_event": calendar_event,
+        "sheet_result": {
+            "title": sheet_result.get("title") if sheet_result else None,
+            "spreadsheet_url": sheet_result.get("spreadsheet_url") if sheet_result else None,
+            "row_count": sheet_result.get("row_count") if sheet_result else None,
+            "headers": sheet_result.get("headers") if sheet_result else None
+        } if sheet_result else None,
         "clarification_answers": clarification_answers,
         "user_id": state.get("user_id"),
         "account_email": state.get("account_email")
@@ -162,6 +173,30 @@ def email_content_node(state: WorkflowState) -> Dict[str, Any]:
         business_context=business_context,
         supervisor_context=supervisor_context
     )
+
+    # Attach generated CSV if sheet_result is present
+    if sheet_result and sheet_result.get("csv_content"):
+        filename = f"{sheet_result.get('title', 'sales')}.csv"
+        # Ensure attachment list has this file
+        attachment_obj = {
+            "filename": filename,
+            "content": sheet_result.get("csv_content"),
+            "maintype": "text",
+            "subtype": "csv"
+        }
+        draft.attachments = [attachment_obj]
+
+    # Real-time Terminal Observability & Tracing
+    print("\n" + "=" * 80)
+    print("             [EMAIL CONTENT AGENT] EMAIL DRAFT GENERATED")
+    print("=" * 80)
+    print(f"To:          {draft.to}")
+    print(f"Subject:     {draft.subject}")
+    print(f"Attachments: {[a.get('filename') for a in draft.attachments]}")
+    print("-" * 80)
+    print("Proposed Body:")
+    print(draft.body.strip())
+    print("=" * 80 + "\n")
 
     return {
         "email_draft": draft.model_dump(),
@@ -177,11 +212,18 @@ def email_revision_node(state: WorkflowState) -> Dict[str, Any]:
     user_feedback = state.get("user_feedback", "")
     business_context = state.get("business_context", {})
     calendar_event = state.get("calendar_event")
+    sheet_result = state.get("sheet_result")
     clarification_answers = state.get("clarification_answers")
     current_revisions = state.get("revision_count", 0)
 
     supervisor_context = {
         "calendar_event": calendar_event,
+        "sheet_result": {
+            "title": sheet_result.get("title") if sheet_result else None,
+            "spreadsheet_url": sheet_result.get("spreadsheet_url") if sheet_result else None,
+            "row_count": sheet_result.get("row_count") if sheet_result else None,
+            "headers": sheet_result.get("headers") if sheet_result else None
+        } if sheet_result else None,
         "clarification_answers": clarification_answers,
         "user_id": state.get("user_id"),
         "account_email": state.get("account_email")
@@ -194,6 +236,28 @@ def email_revision_node(state: WorkflowState) -> Dict[str, Any]:
         business_context=business_context,
         supervisor_context=supervisor_context
     )
+
+    # Maintain CSV attachment across revisions
+    if sheet_result and sheet_result.get("csv_content"):
+        filename = f"{sheet_result.get('title', 'sales')}.csv"
+        updated_draft.attachments = [{
+            "filename": filename,
+            "content": sheet_result.get("csv_content"),
+            "maintype": "text",
+            "subtype": "csv"
+        }]
+
+    # Real-time Terminal Observability & Tracing
+    print("\n" + "=" * 80)
+    print("             [EMAIL CONTENT AGENT] REVISED EMAIL DRAFT")
+    print("=" * 80)
+    print(f"To:          {updated_draft.to}")
+    print(f"Subject:     {updated_draft.subject}")
+    print(f"Attachments: {[a.get('filename') for a in updated_draft.attachments]}")
+    print("-" * 80)
+    print("Revised Body:")
+    print(updated_draft.body.strip())
+    print("=" * 80 + "\n")
 
     return {
         "email_draft": updated_draft.model_dump(),

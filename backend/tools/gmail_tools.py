@@ -21,9 +21,10 @@ def _build_raw_message(
     subject: str,
     body: str,
     cc: Optional[List[str] | str] = None,
-    bcc: Optional[List[str] | str] = None
+    bcc: Optional[List[str] | str] = None,
+    attachments: Optional[List[Dict[str, Any]]] = None
 ) -> str:
-    """Helper function to build base64url encoded raw email according to RFC 2822."""
+    """Helper function to build base64url encoded raw email according to RFC 2822 with optional attachments."""
     msg = EmailMessage()
     msg.set_content(body)
 
@@ -39,6 +40,16 @@ def _build_raw_message(
     if bcc:
         msg["Bcc"] = ", ".join(bcc) if isinstance(bcc, list) else bcc
 
+    if attachments:
+        for att in attachments:
+            filename = att.get("filename", "attachment.csv")
+            content = att.get("content", "")
+            if isinstance(content, str):
+                content = content.encode("utf-8")
+            maintype = att.get("maintype", "text")
+            subtype = att.get("subtype", "csv")
+            msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
+
     raw_bytes = msg.as_bytes()
     return base64.urlsafe_b64encode(raw_bytes).decode("utf-8")
 
@@ -51,7 +62,8 @@ def gmail_create_draft(
     subject: str,
     body: str,
     cc: Optional[List[str]] = None,
-    bcc: Optional[List[str]] = None
+    bcc: Optional[List[str]] = None,
+    attachments: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
     Creates a draft email in Gmail without sending.
@@ -65,6 +77,7 @@ def gmail_create_draft(
         body: Plain text content of the email
         cc: Optional list of CC recipient addresses
         bcc: Optional list of BCC recipient addresses
+        attachments: Optional list of attachment dictionaries with filename, content, maintype, subtype
 
     Returns:
         Dict containing draft ID and created draft metadata
@@ -76,7 +89,7 @@ def gmail_create_draft(
         account_email=account_email
     )
 
-    encoded_message = _build_raw_message(to=to, subject=subject, body=body, cc=cc, bcc=bcc)
+    encoded_message = _build_raw_message(to=to, subject=subject, body=body, cc=cc, bcc=bcc, attachments=attachments)
     draft_body = {
         "message": {
             "raw": encoded_message
@@ -101,10 +114,11 @@ def gmail_send_email(
     body: str,
     cc: Optional[List[str]] = None,
     bcc: Optional[List[str]] = None,
-    thread_id: Optional[str] = None
+    thread_id: Optional[str] = None,
+    attachments: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
     """
-    Sends an email message directly via the official Gmail API.
+    Sends an email message directly via the official Gmail API with optional attachments.
     Official Google reference: https://developers.google.com/workspace/gmail/api/guides/sending
 
     Args:
@@ -116,6 +130,7 @@ def gmail_send_email(
         cc: Optional list of CC recipient addresses
         bcc: Optional list of BCC recipient addresses
         thread_id: Optional thread ID to send as part of an existing conversation
+        attachments: Optional list of attachment dictionaries with filename, content, maintype, subtype
 
     Returns:
         Dict containing the sent message ID, thread ID, and label IDs
@@ -127,7 +142,7 @@ def gmail_send_email(
         account_email=account_email
     )
 
-    encoded_message = _build_raw_message(to=to, subject=subject, body=body, cc=cc, bcc=bcc)
+    encoded_message = _build_raw_message(to=to, subject=subject, body=body, cc=cc, bcc=bcc, attachments=attachments)
     message_body: Dict[str, Any] = {
         "raw": encoded_message
     }
@@ -140,7 +155,8 @@ def gmail_send_email(
         "operation": "gmail.send",
         "message_id": sent_message.get("id"),
         "thread_id": sent_message.get("threadId"),
-        "label_ids": sent_message.get("labelIds", [])
+        "label_ids": sent_message.get("labelIds", []),
+        "has_attachments": bool(attachments)
     }
 
 
