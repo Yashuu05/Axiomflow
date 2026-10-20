@@ -3,22 +3,42 @@
 import { useState } from "react";
 
 interface ApprovalCardProps {
+  subject?: string;
+  to?: string[];
+  body?: string;
+  meetLink?: string;
   onApprove?: () => void;
   onReject?: () => void;
   onEdit?: () => void;
+  onSaveEdits?: (newBody: string) => void;
   approved?: boolean;
 }
 
 export function ApprovalCard({
+  subject,
+  to,
+  body,
+  meetLink,
   onApprove,
   onReject,
   onEdit,
+  onSaveEdits,
   approved = false,
 }: ApprovalCardProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [editedBody, setEditedBody] = useState(
-    "Hi team,\n\nYou are invited to the Q4 Revenue Discussion meeting scheduled for 20/10/2026 at 10:00 AM IST.\nAgenda: Budget variance reconciliation, cash-flow projections & FY27 planning.\n\nPlease confirm availability."
-  );
+  const initialText = body || "---";
+  const [editedBody, setEditedBody] = useState(initialText);
+
+  const displaySubject = subject || "---";
+  const displayTo = to && to.length > 0 ? to.join(", ") : "---";
+
+  const handleToggleEdit = () => {
+    if (isEditing) {
+      onSaveEdits?.(editedBody);
+    }
+    setIsEditing(!isEditing);
+    onEdit?.();
+  };
 
   return (
     <div className="my-4 border border-[#E06D53]/40 bg-white/95 rounded-xl p-5 shadow-sm">
@@ -30,27 +50,34 @@ export function ApprovalCard({
           </span>
         </div>
         <span className="text-[11px] font-mono text-[#526359] bg-[#F8F6F2] px-2 py-0.5 border border-[#1A2F25]/10">
-          GATEWAY: FR-14 // TIMEOUT 30M
+          GATEWAY: FR-14 // SUPERVISORY SIGN-OFF
         </span>
       </div>
 
       <div className="text-xs text-[#526359] mb-3 leading-relaxed">
-        The agent has drafted <strong>2 personalized invitations</strong> for the Finance Team. Please review the generated template before automatic email dispatch.
+        The agent has prepared an outgoing communication. Please review the real-time generated template before automated dispatch.
       </div>
 
       <div className="border border-[#1A2F25]/10 bg-[#F8F6F2] rounded-lg p-3.5 mb-4 text-xs font-mono">
         <div className="text-[#526359] text-[11px] mb-1">
-          <strong>Subject:</strong> Revenue Discussion Meeting — 20/10/2026 @ 10:00 AM
+          <strong>Subject:</strong> {displaySubject}
         </div>
-        <div className="text-[#526359] text-[11px] mb-2 pb-2 border-b border-[#1A2F25]/10">
-          <strong>Recipients:</strong> finance.lead@axiomflow.internal, controller@axiomflow.internal
+        <div className="text-[#526359] text-[11px] mb-1 pb-1">
+          <strong>Recipients:</strong> {displayTo}
         </div>
+        {meetLink && (
+          <div className="text-[#526359] text-[11px] mb-2 pb-2 border-b border-[#1A2F25]/10">
+            <strong>Conference:</strong> <a href={meetLink} target="_blank" rel="noreferrer" className="text-[#E06D53] underline">{meetLink}</a>
+          </div>
+        )}
+        {!meetLink && <div className="border-b border-[#1A2F25]/10 mb-2"></div>}
+
         {isEditing ? (
           <textarea
             value={editedBody}
             onChange={(e) => setEditedBody(e.target.value)}
-            rows={4}
-            className="w-full bg-white border border-[#E06D53] p-2 text-xs font-mono text-[#1A2F25] focus:outline-none"
+            rows={5}
+            className="w-full bg-white border border-[#E06D53] p-2 text-xs font-mono text-[#1A2F25] focus:outline-none rounded"
           />
         ) : (
           <p className="whitespace-pre-line text-[#1A2F25] text-xs font-sans leading-relaxed">
@@ -61,7 +88,7 @@ export function ApprovalCard({
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <span className="text-[11px] font-mono text-[#526359]">
-          Paused if no response in 30 minutes.
+          Paused pending supervisory clearance.
         </span>
 
         <div className="flex items-center gap-2">
@@ -73,10 +100,7 @@ export function ApprovalCard({
             <>
               <button
                 type="button"
-                onClick={() => {
-                  setIsEditing(!isEditing);
-                  onEdit?.();
-                }}
+                onClick={handleToggleEdit}
                 className="px-3.5 py-1.5 border border-[#1A2F25]/20 hover:border-[#1A2F25] bg-white text-[#1A2F25] font-sans text-xs transition-colors rounded-full"
               >
                 {isEditing ? "Save Edits" : "Edit Draft"}

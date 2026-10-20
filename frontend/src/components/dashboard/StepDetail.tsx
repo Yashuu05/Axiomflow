@@ -5,16 +5,25 @@ import { ApprovalCard, FailureCard, ReplanNotice } from "./InlineCards";
 
 interface StepDetailProps {
   step: WorkflowStep | undefined;
+  emailDraft?: {
+    subject?: string;
+    to?: string[];
+    body?: string;
+    meet_link?: string;
+  };
   onApproveStep?: (stepId: string) => void;
   onRejectStep?: (stepId: string) => void;
   onRetryStep?: (stepId: string) => void;
+  onSaveEdits?: (stepId: string, newBody: string) => void;
 }
 
 export default function StepDetail({
   step,
+  emailDraft,
   onApproveStep,
   onRejectStep,
   onRetryStep,
+  onSaveEdits,
 }: StepDetailProps) {
   if (!step) {
     return (
@@ -85,8 +94,13 @@ export default function StepDetail({
       {/* Interruption cards */}
       {step.status === "waiting" && (
         <ApprovalCard
+          subject={emailDraft?.subject}
+          to={emailDraft?.to}
+          body={emailDraft?.body}
+          meetLink={emailDraft?.meet_link}
           onApprove={() => onApproveStep?.(step.id)}
           onReject={() => onRejectStep?.(step.id)}
+          onSaveEdits={(newBody) => onSaveEdits?.(step.id, newBody)}
         />
       )}
 
@@ -111,7 +125,7 @@ export default function StepDetail({
 
         {step.activityLogs.length === 0 ? (
           <div className="p-4 border border-dashed border-[#1A2F25]/10 rounded-lg text-center text-xs font-mono text-[#526359]">
-            Awaiting step telemetry...
+            Awaiting step telemetry... (---)
           </div>
         ) : (
           <div className="space-y-2 border border-[#1A2F25]/8 bg-[#F8F6F2]/80 rounded-xl p-3.5 max-h-56 overflow-y-auto">
@@ -138,7 +152,7 @@ export default function StepDetail({
             </span>
           </div>
           <p className="font-sans text-xs text-[#526359] leading-relaxed bg-[#F8F6F2]/60 p-3 rounded-lg border border-[#1A2F25]/8">
-            {step.reasoning}
+            {step.reasoning || "---"}
           </p>
         </div>
       </div>

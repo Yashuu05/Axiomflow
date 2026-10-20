@@ -73,6 +73,14 @@ export default function StepTimeline({
     }
   };
 
+  if (!steps || steps.length === 0) {
+    return (
+      <div className="py-12 px-4 text-center text-xs font-mono text-[#526359] border border-dashed border-[#1A2F25]/15 rounded-xl">
+        No workflow steps available (---)
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3 py-2 pr-2 md:pr-4">
       {steps.map((step) => {

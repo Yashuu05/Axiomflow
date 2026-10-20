@@ -1,154 +1,77 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 export interface LogEntry {
   task_id: string;
   query: string;
-  description: string;
+  task_description?: string;
+  description?: string;
   agent_name: string;
   llm_name: string;
   time_taken: string;
+  raw_time_taken?: number;
   time_stamp: string;
-  status: "Completed" | "Failed" | "Running" | "Pending";
-  token_usage?: { prompt: number; completion: number; total: number };
-  system_payload?: string;
+  status: string;
 }
 
-const MOCK_LOGS: LogEntry[] = [
-  {
-    task_id: "ABC_066",
-    query: "write an investor meeting email",
-    description: "email content generator",
-    agent_name: "email agent",
-    llm_name: "gemini-3.8-flash",
-    time_taken: "12 sec",
-    time_stamp: "19/10/2026 04:00:20",
-    status: "Completed",
-    token_usage: { prompt: 1420, completion: 480, total: 1900 },
-    system_payload: JSON.stringify(
-      {
-        action: "generate_template",
-        recipient_count: 42,
-        verified_by: "DeterministicVerifier.v1",
-        output_sha256: "9f82c...b12a",
-      },
-      null,
-      2
-    ),
-  },
-  {
-    task_id: "ABC_067",
-    query: "write an investor meeting email",
-    description: "Sending email to investors",
-    agent_name: "email agent",
-    llm_name: "gemini-3.8-flash",
-    time_taken: "16 sec",
-    time_stamp: "19/10/2026 04:16:20",
-    status: "Failed",
-    token_usage: { prompt: 1100, completion: 92, total: 1192 },
-    system_payload: JSON.stringify(
-      {
-        error: "SMTP_AUTH_TIMEOUT: Gateway connection rejected by mail.investor-relay.org",
-        retry_policy: "Backoff (1/3)",
-        interrupted_at_step: "SES_DISPATCH",
-      },
-      null,
-      2
-    ),
-  },
-  {
-    task_id: "ABC_068",
-    query: "schedule meeting of 'Revenue discussion'",
-    description: "finance team meeting coordinator",
-    agent_name: "calendar agent",
-    llm_name: "gemini-3.8-flash",
-    time_taken: "8 sec",
-    time_stamp: "20/10/2026 09:12:00",
-    status: "Completed",
-    token_usage: { prompt: 950, completion: 320, total: 1270 },
-    system_payload: JSON.stringify(
-      {
-        calendar_id: "cal_fin_2026_q4",
-        slot: "2026-10-20T10:00:00+05:30",
-        participants: ["finance.lead@axiomflow.internal", "controller@axiomflow.internal"],
-      },
-      null,
-      2
-    ),
-  },
-  {
-    task_id: "ABC_069",
-    query: "reconcile overdue invoice INV-204",
-    description: "accounts receivable audit & ledger balance",
-    agent_name: "reconciliation agent",
-    llm_name: "gemini-1.5-pro",
-    time_taken: "24 sec",
-    time_stamp: "20/10/2026 10:30:14",
-    status: "Completed",
-    token_usage: { prompt: 3410, completion: 1120, total: 4530 },
-    system_payload: JSON.stringify(
-      {
-        invoice_ref: "INV-204",
-        amount_due: 42500.0,
-        settlement_status: "PAID_RECONCILED",
-        cleared_bank_tx: "TXN_HDFC_992144",
-      },
-      null,
-      2
-    ),
-  },
-  {
-    task_id: "ABC_070",
-    query: "quarterly statutory compliance dispatch",
-    description: "regulatory filing compiler & ROC verification",
-    agent_name: "compliance agent",
-    llm_name: "gemini-3.8-flash",
-    time_taken: "18 sec",
-    time_stamp: "20/10/2026 11:05:45",
-    status: "Running",
-    token_usage: { prompt: 2150, completion: 640, total: 2790 },
-    system_payload: JSON.stringify(
-      {
-        statutory_body: "MCA / GSTN",
-        form: "GSTR-3B_FY26_Q2",
-        status: "RUNNING_AUDIT_VERIFICATION",
-      },
-      null,
-      2
-    ),
-  },
-];
-
 export default function LogsView() {
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
 
-  const filteredLogs = MOCK_LOGS.filter((item) => {
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  const fetchLogs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/logs`);
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data.logs || []);
+      } else {
+        setLogs([]);
+      }
+    } catch (err) {
+      console.error("Failed to load logs from axiomflow_db:", err);
+      setLogs([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [API_BASE]);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
+
+  const filteredLogs = logs.filter((item) => {
+    const s = searchTerm.toLowerCase();
     const matchesSearch =
-      item.task_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.query.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.agent_name.toLowerCase().includes(searchTerm.toLowerCase());
+      !searchTerm ||
+      (item.task_id && item.task_id.toLowerCase().includes(s)) ||
+      (item.query && item.query.toLowerCase().includes(s)) ||
+      (item.task_description && item.task_description.toLowerCase().includes(s)) ||
+      (item.agent_name && item.agent_name.toLowerCase().includes(s));
 
     const matchesStatus =
-      filterStatus === "All" || item.status === filterStatus;
+      filterStatus === "All" ||
+      (item.status && item.status.toLowerCase() === filterStatus.toLowerCase());
 
     return matchesSearch && matchesStatus;
   });
 
-  const getStatusColor = (status: LogEntry["status"]) => {
-    switch (status) {
-      case "Completed":
-        return "text-[#10B981]"; // bright emerald green matching mockup
-      case "Failed":
-        return "text-[#EF4444]"; // bright red matching mockup
-      case "Running":
-        return "text-[#E5A93C]";
-      default:
-        return "text-[#526359]";
+  const getStatusColor = (status: string) => {
+    const s = (status || "").toLowerCase();
+    if (s === "completed" || s === "succeeded") {
+      return "text-[#10B981]";
+    } else if (s === "failed" || s === "rejected") {
+      return "text-[#EF4444]";
+    } else if (s === "running") {
+      return "text-[#E5A93C]";
     }
+    return "text-[#526359]";
   };
 
   return (
@@ -160,7 +83,7 @@ export default function LogsView() {
             Execution Telemetry & Audit Logs
           </span>
           <span className="text-[11px] font-mono text-[#526359] bg-[#1A2F25]/5 px-2 py-0.5 rounded border border-[#1A2F25]/10">
-            {filteredLogs.length} Records
+            {loading ? "..." : `${filteredLogs.length} Records`}
           </span>
         </div>
 
@@ -201,10 +124,23 @@ export default function LogsView() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
+
+          {/* Refresh Button */}
+          <button
+            type="button"
+            onClick={fetchLogs}
+            disabled={loading}
+            aria-label="Refresh Logs"
+            title="Refresh logs from axiomflow_db"
+            className="px-3 py-1.5 bg-white hover:bg-[#F8F6F2] border border-[#E06D53]/40 rounded-full text-xs font-mono text-[#1A2F25] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <span className={`${loading ? "animate-spin" : ""}`}>↻</span>
+            <span className="hidden md:inline">Refresh</span>
+          </button>
         </div>
       </div>
 
-      {/* Table Container matching logs.png */}
+      {/* Table Container matching design */}
       <div className="overflow-x-auto rounded-2xl border border-[#E06D53] bg-white/70 shadow-sm">
         <table className="w-full border-collapse text-left text-sm">
           <thead>
@@ -244,43 +180,43 @@ export default function LogsView() {
               >
                 {/* task_id */}
                 <td className="py-5 px-4 border-r border-[#E06D53] font-editorial text-lg text-center text-[#1A2F25] whitespace-nowrap">
-                  {log.task_id}
+                  {log.task_id || "---"}
                 </td>
 
                 {/* Query */}
                 <td className="py-5 px-4 border-r border-[#E06D53] font-editorial text-lg text-center text-[#1A2F25]">
-                  {log.query}
+                  {log.query || "---"}
                 </td>
 
                 {/* Description */}
                 <td className="py-5 px-4 border-r border-[#E06D53] font-editorial text-lg text-center text-[#1A2F25]">
-                  {log.description}
+                  {log.task_description || log.description || "---"}
                 </td>
 
                 {/* Agent Name */}
                 <td className="py-5 px-4 border-r border-[#E06D53] font-editorial text-lg text-center text-[#1A2F25] whitespace-nowrap">
-                  {log.agent_name}
+                  {log.agent_name || "---"}
                 </td>
 
                 {/* LLM Name */}
                 <td className="py-5 px-4 border-r border-[#E06D53] font-editorial text-lg text-center text-[#1A2F25] whitespace-nowrap">
-                  {log.llm_name}
+                  {log.llm_name || "---"}
                 </td>
 
                 {/* Time Taken */}
                 <td className="py-5 px-4 border-r border-[#E06D53] font-editorial text-lg text-center text-[#1A2F25] whitespace-nowrap">
-                  {log.time_taken}
+                  {log.time_taken || "---"}
                 </td>
 
                 {/* Time Stamp */}
                 <td className="py-5 px-4 border-r border-[#E06D53] font-editorial text-lg text-center text-[#1A2F25] whitespace-nowrap">
-                  {log.time_stamp}
+                  {log.time_stamp || "---"}
                 </td>
 
                 {/* Status */}
                 <td className="py-5 px-4 font-editorial text-xl text-center whitespace-nowrap">
                   <span className={`${getStatusColor(log.status)} font-normal`}>
-                    {log.status}
+                    {log.status || "---"}
                   </span>
                 </td>
               </tr>
@@ -292,7 +228,9 @@ export default function LogsView() {
                   colSpan={8}
                   className="py-12 text-center text-[#526359] font-editorial text-xl"
                 >
-                  No matching log telemetry records found.
+                  {loading
+                    ? "Loading audit telemetry from axiomflow_db..."
+                    : "no data available (---)"}
                 </td>
               </tr>
             )}
@@ -302,7 +240,7 @@ export default function LogsView() {
 
       <div className="mt-3 flex items-center justify-between text-xs font-mono text-[#526359] px-2">
         <span>Click any row to inspect deep telemetry and payload output.</span>
-        <span>MySQL: `axiomflow_db.audit_logs`</span>
+        <span>Connected: RDS MySQL `axiomflow_db.logs`</span>
       </div>
 
       {/* Selected Log Detail Modal */}
@@ -319,64 +257,54 @@ export default function LogsView() {
 
             <div className="flex items-center gap-2 mb-1">
               <span className="font-mono text-xs text-[#E06D53] font-bold">
-                AUDIT_TELEMETRY // {selectedLog.task_id}
+                AUDIT_TELEMETRY // {selectedLog.task_id || "---"}
               </span>
               <span
                 className={`font-editorial text-lg ${getStatusColor(
                   selectedLog.status
                 )}`}
               >
-                ● {selectedLog.status}
+                ● {selectedLog.status || "---"}
               </span>
             </div>
 
             <h3 className="font-editorial text-2xl text-[#1A2F25] mb-4">
-              {selectedLog.query}
+              {selectedLog.query || "---"}
             </h3>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 bg-[#F8F6F2] rounded-xl font-mono text-xs mb-4">
               <div>
                 <span className="text-[#526359] block text-[10px]">AGENT</span>
-                <span className="text-[#1A2F25] font-semibold">{selectedLog.agent_name}</span>
+                <span className="text-[#1A2F25] font-semibold">{selectedLog.agent_name || "---"}</span>
               </div>
               <div>
                 <span className="text-[#526359] block text-[10px]">LLM</span>
-                <span className="text-[#1A2F25] font-semibold">{selectedLog.llm_name}</span>
+                <span className="text-[#1A2F25] font-semibold">{selectedLog.llm_name || "---"}</span>
               </div>
               <div>
                 <span className="text-[#526359] block text-[10px]">DURATION</span>
-                <span className="text-[#1A2F25] font-semibold">{selectedLog.time_taken}</span>
+                <span className="text-[#1A2F25] font-semibold">{selectedLog.time_taken || "---"}</span>
               </div>
               <div>
                 <span className="text-[#526359] block text-[10px]">TIMESTAMP</span>
-                <span className="text-[#1A2F25] font-semibold">{selectedLog.time_stamp}</span>
+                <span className="text-[#1A2F25] font-semibold">{selectedLog.time_stamp || "---"}</span>
               </div>
             </div>
 
-            {selectedLog.token_usage && (
-              <div className="flex items-center justify-between text-xs font-mono text-[#526359] border-b border-[#1A2F25]/10 pb-3 mb-4">
-                <span>Prompt Tokens: {selectedLog.token_usage.prompt}</span>
-                <span>Completion: {selectedLog.token_usage.completion}</span>
-                <span className="font-semibold text-[#1A2F25]">
-                  Total: {selectedLog.token_usage.total}
-                </span>
-              </div>
-            )}
-
-            <div>
+            <div className="mb-4">
               <div className="text-xs font-mono text-[#526359] uppercase tracking-wider mb-2">
-                VERIFIED_PAYLOAD_OUTPUT (JSON):
+                TASK_DESCRIPTION:
               </div>
-              <pre className="bg-[#1A2F25] text-[#F8F6F2] p-4 rounded-xl text-xs font-mono overflow-x-auto max-h-52">
-                {selectedLog.system_payload}
-              </pre>
+              <div className="bg-[#F8F6F2] text-[#1A2F25] p-3 rounded-xl text-xs font-sans border border-[#1A2F25]/10">
+                {selectedLog.task_description || selectedLog.description || "---"}
+              </div>
             </div>
 
             <div className="mt-5 flex justify-end">
               <button
                 type="button"
                 onClick={() => setSelectedLog(null)}
-                className="px-5 py-2 bg-[#E06D53] hover:bg-[#CD5B42] text-white text-xs font-mono uppercase font-semibold rounded-full"
+                className="px-5 py-2 bg-[#E06D53] hover:bg-[#CD5B42] text-white text-xs font-mono uppercase font-semibold rounded-full cursor-pointer"
               >
                 Close Inspector
               </button>

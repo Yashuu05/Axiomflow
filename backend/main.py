@@ -342,6 +342,102 @@ def login_user(payload: LoginRequest):
         if conn:
             conn.close()
 
+# --- Real-Time Workflow & Telemetry API Endpoints ---
+import workflow_service
+
+class WorkflowRunPayload(BaseModel):
+    query: str = Field(..., min_length=1, description="Business objective in natural language")
+    user_id: Optional[str] = Field("usr_72b30e7cd49e49e5", description="User ID")
+    business_id: Optional[int] = Field(2, description="Business ID")
+    account_email: Optional[str] = Field("chillalyash2005@gmail.com", description="Google OAuth Account Email")
+    auto_approve: Optional[bool] = Field(False, description="Whether to automatically approve human review steps")
+
+class WorkflowApprovalPayload(BaseModel):
+    task_id: str
+    decision: str = Field("accepted", description="'accepted', 'rejected', or 'updated'")
+    user_feedback: Optional[str] = None
+    edited_body: Optional[str] = None
+
+@app.get("/api/logs")
+def get_logs_endpoint(
+    limit: int = 50,
+    status: Optional[str] = None,
+    search: Optional[str] = None
+):
+    """Fetches real-time execution audit logs directly from MySQL axiomflow_db.logs table."""
+    logs_data = workflow_service.fetch_audit_logs(
+        limit=limit,
+        status_filter=status,
+        search=search
+    )
+    return {"logs": logs_data, "total": len(logs_data)}
+
+@app.get("/api/notifications")
+def get_notifications_endpoint(limit: int = 20):
+    """Fetches real-time alert notifications directly from MySQL axiomflow_db.notifications table."""
+    notifs = workflow_service.fetch_notifications(limit=limit)
+    return {"notifications": notifs, "total": len(notifs)}
+
+@app.get("/api/user/profile/{user_id}")
+def get_user_profile_endpoint(user_id: str):
+    """Retrieves business context and user profile directly from axiomflow_db."""
+    profile = workflow_service.fetch_business_profile_and_user(user_id)
+    return profile
+
+@app.post("/api/workflow/run")
+async def run_workflow_endpoint(payload: WorkflowRunPayload):
+    """
+    Initiates an Agentic AI workflow for the given objective.
+    Records execution to axiomflow_db.logs and axiomflow_db.notifications.
+    """
+    task_id = workflow_service.start_new_workflow(
+        query=payload.query.strip(),
+        user_id=payload.user_id or "usr_72b30e7cd49e49e5",
+        business_id=payload.business_id or 2,
+        account_email=payload.account_email or "chillalyash2005@gmail.com",
+        auto_approve=payload.auto_approve or False
+    )
+    return {
+        "success": True,
+        "task_id": task_id,
+        "status": "running",
+        "message": "Workflow started successfully and recorded in axiomflow_db."
+    }
+
+@app.get("/api/workflow/status/{task_id}")
+def get_workflow_status_endpoint(task_id: str):
+    """Returns the live execution telemetry and step progress of a workflow task."""
+    st = workflow_service.get_workflow_status(task_id)
+    if not st:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow with task ID '{task_id}' not found."
+        )
+    return st
+
+@app.get("/api/workflow/latest")
+def get_latest_workflow_endpoint():
+    """Returns the most recently executed active workflow, or null if none."""
+    st = workflow_service.get_latest_active_workflow()
+    return {"workflow": st}
+
+@app.post("/api/workflow/approve")
+def approve_workflow_endpoint(payload: WorkflowApprovalPayload):
+    """Submits human supervisory decision (accept, reject, or edit) to resume paused workflow."""
+    success = workflow_service.approve_workflow_step(
+        task_id=payload.task_id,
+        decision=payload.decision,
+        user_feedback=payload.user_feedback,
+        edited_body=payload.edited_body
+    )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Active approval gateway for task '{payload.task_id}' not found."
+        )
+    return {"success": True, "message": f"Supervisory clearance '{payload.decision}' registered."}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+

@@ -13,6 +13,15 @@ interface DashboardHeaderProps {
   onLogout: () => void;
 }
 
+interface NotificationItem {
+  id: string;
+  date: string;
+  time: string;
+  message: string;
+  status: string;
+  created_at: string;
+}
+
 export default function DashboardHeader({
   activeTab,
   onTabChange,
@@ -21,54 +30,58 @@ export default function DashboardHeader({
   const [showSettings, setShowSettings] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [userData, setUserData] = useState({
-    userName: "Admin User",
-    businessName: "Axiomflow Core",
-    userRole: "OPERATIONS_ADMIN",
+    userName: "---",
+    businessName: "---",
+    userRole: "---",
   });
 
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
   useEffect(() => {
+    let currentUserId = "usr_72b30e7cd49e49e5";
     try {
       const stored = localStorage.getItem("axiomflow_session");
       if (stored) {
         const parsed = JSON.parse(stored);
-        const timer = setTimeout(() => {
-          setUserData({
-            userName: parsed.admin_name || "Admin User",
-            businessName: parsed.business_name || "Axiomflow Core",
-            userRole: parsed.role || "OPERATIONS_ADMIN",
-          });
-        }, 0);
-        return () => clearTimeout(timer);
+        if (parsed.user_id) currentUserId = parsed.user_id;
+        setUserData({
+          userName: parsed.admin_name || "---",
+          businessName: parsed.business_name || "---",
+          userRole: parsed.role || "---",
+        });
       }
     } catch {
       // Ignore if localStorage unavailable
     }
-  }, []);
 
-  const notifications = [
-    {
-      id: "n1",
-      title: "Step 4 Needs Human Approval",
-      desc: "Revenue Discussion meeting invitations drafted.",
-      time: "2m ago",
-      type: "alert",
-    },
-    {
-      id: "n2",
-      title: "Task ABC_066 Finished",
-      desc: "Investor dispatch template written to vault.",
-      time: "14m ago",
-      type: "success",
-    },
-    {
-      id: "n3",
-      title: "RDS MySQL Connection Healthy",
-      desc: "axiomflow_db latency 12ms (ap-south-1).",
-      time: "1h ago",
-      type: "info",
-    },
-  ];
+    // Fetch real user & organization profile from axiomflow_db
+    fetch(`${API_BASE}/api/user/profile/${currentUserId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((profile) => {
+        if (profile) {
+          setUserData({
+            userName: profile.user_name || "---",
+            businessName: profile.business_name || "---",
+            userRole: profile.role || "---",
+          });
+        }
+      })
+      .catch((err) => console.error("Error loading user profile:", err));
+
+    // Fetch real notifications from axiomflow_db.notifications
+    fetch(`${API_BASE}/api/notifications`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.notifications) {
+          setNotifications(data.notifications);
+        } else {
+          setNotifications([]);
+        }
+      })
+      .catch((err) => console.error("Error loading notifications:", err));
+  }, [API_BASE]);
 
   return (
     <>
@@ -155,7 +168,9 @@ export default function DashboardHeader({
                 <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
                   <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z" />
                 </svg>
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#E06D53] ring-2 ring-[#F8F6F2]"></span>
+                {notifications.length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#E06D53] ring-2 ring-[#F8F6F2]"></span>
+                )}
               </button>
 
               {/* Notifications Popover */}
@@ -164,23 +179,29 @@ export default function DashboardHeader({
                   <div className="flex items-center justify-between pb-2 border-b border-[#1A2F25]/10 mb-3">
                     <span className="font-editorial text-lg text-[#1A2F25]">Alerts & Approvals</span>
                     <span className="text-[10px] font-mono text-[#E06D53] bg-[#E06D53]/10 px-1.5 py-0.5 rounded">
-                      3 UNREAD
+                      {notifications.length} {notifications.length === 1 ? "RECORD" : "RECORDS"}
                     </span>
                   </div>
-                  <div className="space-y-2.5">
-                    {notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        className="p-2.5 bg-[#F8F6F2] hover:bg-[#FFF6F3] rounded-xl text-xs transition-colors cursor-pointer border border-[#1A2F25]/5"
-                      >
-                        <div className="flex items-center justify-between font-medium text-[#1A2F25] mb-0.5">
-                          <span>{n.title}</span>
-                          <span className="text-[10px] font-mono text-[#526359]">{n.time}</span>
+                  {notifications.length === 0 ? (
+                    <div className="py-6 text-center text-xs font-mono text-[#526359]">
+                      no data available (---)
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 max-h-72 overflow-y-auto">
+                      {notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          className="p-2.5 bg-[#F8F6F2] hover:bg-[#FFF6F3] rounded-xl text-xs transition-colors cursor-pointer border border-[#1A2F25]/5"
+                        >
+                          <div className="flex items-center justify-between font-medium text-[#1A2F25] mb-0.5">
+                            <span className="truncate pr-2 font-mono text-[11px] font-semibold uppercase">{n.status || "EVENT"}</span>
+                            <span className="text-[10px] font-mono text-[#526359] shrink-0">{n.time || n.date || "---"}</span>
+                          </div>
+                          <p className="text-[11px] text-[#526359] leading-relaxed">{n.message || "---"}</p>
                         </div>
-                        <p className="text-[11px] text-[#526359]">{n.desc}</p>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

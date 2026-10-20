@@ -163,26 +163,6 @@ export default function ConnectView({
     }
   };
 
-  const plannedConnectors = [
-    {
-      title: "Relational Databases",
-      description: "Direct JDBC/SQL connection to MySQL (axiomflow_db), PostgreSQL, or Oracle instances.",
-      tag: "READY (RDS MYSQL)",
-      icon: "🗄️",
-    },
-    {
-      title: "Excel & CSV Spreadsheets",
-      description: "Upload financial statements, vendor directories, or investor contact sheets (.xlsx, .csv).",
-      tag: "IN SPECIFICATION",
-      icon: "📊",
-    },
-    {
-      title: "Accounting & ERP Gateways",
-      description: "Two-way synchronization with Tally, SAP, QuickBooks, and Stripe billing engines.",
-      tag: "QUEUED",
-      icon: "⚡",
-    },
-  ];
 
   return (
     <div className="flex-1 flex flex-col justify-between py-4 max-w-4xl mx-auto w-full">
@@ -287,27 +267,14 @@ export default function ConnectView({
         </div>
       </div>
 
-      {/* Planned Connectors Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        {plannedConnectors.map((item, index) => (
-          <div
-            key={index}
-            className="p-5 bg-white/80 border border-[#1A2F25]/10 rounded-2xl shadow-xs relative overflow-hidden"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-2xl">{item.icon}</span>
-              <span className="font-mono text-[9px] uppercase tracking-wider text-[#526359] bg-[#F8F6F2] px-2 py-0.5 rounded border border-[#1A2F25]/8 font-medium">
-                {item.tag}
-              </span>
-            </div>
-            <h3 className="font-editorial text-lg text-[#1A2F25] mb-1">
-              {item.title}
-            </h3>
-            <p className="font-sans text-xs text-[#526359] leading-relaxed">
-              {item.description}
-            </p>
-          </div>
-        ))}
+      {/* Additional Connectors (Real-time Status) */}
+      <div className="p-6 bg-white/70 border border-dashed border-[#1A2F25]/15 rounded-2xl text-center mb-6">
+        <h3 className="font-editorial text-lg text-[#1A2F25] mb-1">
+          Additional Integrations & Database Sources
+        </h3>
+        <p className="font-sans text-xs text-[#526359] max-w-md mx-auto">
+          No additional external database or file connections available (---). When relational databases or spreadsheet sources are integrated into your organization profile, real-time connection status will be displayed here.
+        </p>
       </div>
 
       <div className="text-center pt-4">
