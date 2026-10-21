@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 export interface LogEntry {
+  id?: string;
   task_id: string;
   query: string;
   task_description?: string;
@@ -24,10 +25,10 @@ export default function LogsView() {
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
+  const fetchLogs = useCallback(async (isSilent: boolean = false) => {
+    if (!isSilent) setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/logs`);
+      const res = await fetch(`${API_BASE}/api/logs?limit=100`);
       if (res.ok) {
         const data = await res.json();
         setLogs(data.logs || []);
@@ -38,12 +39,19 @@ export default function LogsView() {
       console.error("Failed to load logs from axiomflow_db:", err);
       setLogs([]);
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   }, [API_BASE]);
 
   useEffect(() => {
     fetchLogs();
+
+    // Auto-poll for live step updates every 3 seconds while viewing Logs
+    const interval = setInterval(() => {
+      fetchLogs(true);
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, [fetchLogs]);
 
   const filteredLogs = logs.filter((item) => {
@@ -55,9 +63,17 @@ export default function LogsView() {
       (item.task_description && item.task_description.toLowerCase().includes(s)) ||
       (item.agent_name && item.agent_name.toLowerCase().includes(s));
 
-    const matchesStatus =
-      filterStatus === "All" ||
-      (item.status && item.status.toLowerCase() === filterStatus.toLowerCase());
+    const itemStatus = (item.status || "").toLowerCase();
+    const filter = filterStatus.toLowerCase();
+    let matchesStatus = filter === "all";
+
+    if (filter === "completed") {
+      matchesStatus = itemStatus === "completed" || itemStatus === "succeeded";
+    } else if (filter === "failed") {
+      matchesStatus = itemStatus === "failed" || itemStatus === "rejected";
+    } else if (filter === "running") {
+      matchesStatus = itemStatus === "running" || itemStatus === "waiting approval" || itemStatus === "approved";
+    }
 
     return matchesSearch && matchesStatus;
   });
@@ -70,6 +86,10 @@ export default function LogsView() {
       return "text-[#EF4444]";
     } else if (s === "running") {
       return "text-[#E5A93C]";
+    } else if (s.includes("approval") || s.includes("waiting")) {
+      return "text-[#E06D53]";
+    } else if (s === "approved") {
+      return "text-[#2563EB]";
     }
     return "text-[#526359]";
   };
@@ -128,7 +148,7 @@ export default function LogsView() {
           {/* Refresh Button */}
           <button
             type="button"
-            onClick={fetchLogs}
+            onClick={() => fetchLogs()}
             disabled={loading}
             aria-label="Refresh Logs"
             title="Refresh logs from axiomflow_db"
@@ -172,9 +192,9 @@ export default function LogsView() {
             </tr>
           </thead>
           <tbody className="divide-y divide-[#E06D53]">
-            {filteredLogs.map((log) => (
+            {filteredLogs.map((log, idx) => (
               <tr
-                key={log.task_id}
+                key={log.id || `${log.task_id}-${idx}`}
                 onClick={() => setSelectedLog(log)}
                 className="hover:bg-[#E06D53]/5 transition-colors cursor-pointer group"
               >

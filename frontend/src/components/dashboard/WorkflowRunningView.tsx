@@ -30,6 +30,36 @@ export default function WorkflowRunningView({
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Dedicated 1-second interval timer that increments smoothly by exactly 1s every 1000ms
+  useEffect(() => {
+    const isCurrentlyActive =
+      (workflowStatus === "running" ||
+        workflowStatus === "waiting_approval" ||
+        workflowStatus === "initializing") &&
+      !isPaused &&
+      !!taskId;
+
+    if (isCurrentlyActive) {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = setInterval(() => {
+        setElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
+  }, [workflowStatus, isPaused, taskId]);
 
   // Poll backend for real-time workflow status
   const pollStatus = useCallback(async () => {
@@ -55,7 +85,22 @@ export default function WorkflowRunningView({
           }
         }
         if (typeof data.elapsed_seconds === "number") {
-          setElapsedSeconds(data.elapsed_seconds);
+          // If terminal status, lock directly to server total
+          if (
+            data.status === "completed" ||
+            data.status === "failed" ||
+            data.status === "rejected"
+          ) {
+            setElapsedSeconds(data.elapsed_seconds);
+          } else {
+            // While running, only perform drift correction if divergence exceeds 2 seconds
+            setElapsedSeconds((prev) => {
+              if (prev === 0 || Math.abs(prev - data.elapsed_seconds) > 2) {
+                return data.elapsed_seconds;
+              }
+              return prev;
+            });
+          }
         }
         if (typeof data.progress_percent === "number") {
           setProgressPercent(data.progress_percent);

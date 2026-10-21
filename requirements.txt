@@ -8,3 +8,4 @@ langchain-google-genai
 langchain-groq
 langchain-ollama
 pymysql
+plyer

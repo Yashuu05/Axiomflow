@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS `users` (
 
 TABLES['logs'] = """
 CREATE TABLE IF NOT EXISTS `logs` (
-    `task_id` VARCHAR(64) PRIMARY KEY,
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `task_id` VARCHAR(64) NOT NULL,
     `query` TEXT NULL,
     `status` VARCHAR(50) NOT NULL,
     `task_description` TEXT NULL,
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS `logs` (
     `llm_name` VARCHAR(100) NULL,
     `time_taken` FLOAT NULL,
     `time_stamp` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_logs_task_id` (`task_id`),
     INDEX `idx_logs_status` (`status`),
     INDEX `idx_logs_agent` (`agent_name`),
     INDEX `idx_logs_timestamp` (`time_stamp`)

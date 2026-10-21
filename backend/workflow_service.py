@@ -29,32 +29,19 @@ PAUSE_EVENTS: Dict[str, threading.Event] = {}
 STOP_SIGNALS: Dict[str, bool] = {}
 
 
-def record_notification(message: str, status: str = "info") -> Optional[int]:
+from notification_service import (
+    record_notification as service_record_notification,
+    fetch_notifications as service_fetch_notifications
+)
+
+def record_notification(message: str, status: str = "info", task_id: Optional[str] = None) -> Optional[int]:
     """
-    Inserts a record into axiomflow_db.notifications table.
+    Inserts a record into axiomflow_db.notifications table, triggers a plyer desktop
+    alert on the system, and streams an SSE event to connected dashboard clients.
     CRITICAL RULE: Notifications are ONLY triggered after execution terminates
-    (status = completed or failed/rejected). Never on startup or intermediate steps.
+    (status = completed or failed/rejected/paused). Never on startup or intermediate steps.
     """
-    conn = None
-    try:
-        conn = get_db_conn()
-        with conn.cursor() as cur:
-            now = datetime.now()
-            cur.execute(
-                """
-                INSERT INTO `notifications` (`date`, `time`, `message`, `status`, `created_at`)
-                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP);
-                """,
-                (now.date(), now.time().strftime("%H:%M:%S"), message, status)
-            )
-            conn.commit()
-            return cur.lastrowid
-    except Exception as e:
-        print(f"[WARNING] Failed to record notification to database: {e}")
-        return None
-    finally:
-        if conn:
-            conn.close()
+    return service_record_notification(message=message, status=status, task_id=task_id)
 
 
 def record_log(
@@ -65,10 +52,11 @@ def record_log(
     agent_name: str,
     llm_name: str = "gemini-3.8-flash",
     time_taken: Optional[float] = None
-):
+) -> Optional[int]:
     """
-    Inserts or updates an audit log entry in axiomflow_db.logs table.
-    Updates continuously in runtime as agents generate artifacts and steps run.
+    Inserts an audit log entry in axiomflow_db.logs table for each individual step.
+    CRITICAL RULE: 'logs' stores logs of each step within a single workflow in sequence,
+    giving full step-by-step audit telemetry.
     """
     conn = None
     try:
@@ -80,26 +68,22 @@ def record_log(
                     `task_id`, `query`, `status`, `task_description`, 
                     `agent_name`, `llm_name`, `time_taken`, `time_stamp`
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                ON DUPLICATE KEY UPDATE
-                    `status` = VALUES(`status`),
-                    `task_description` = VALUES(`task_description`),
-                    `agent_name` = VALUES(`agent_name`),
-                    `llm_name` = VALUES(`llm_name`),
-                    `time_taken` = VALUES(`time_taken`);
+                VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP);
                 """,
                 (task_id, query, status, description, agent_name, llm_name, time_taken)
             )
             conn.commit()
+            return cur.lastrowid
     except Exception as e:
         print(f"[WARNING] Failed to record log to database: {e}")
+        return None
     finally:
         if conn:
             conn.close()
 
 
 def fetch_audit_logs(
-    limit: int = 50,
+    limit: int = 100,
     status_filter: Optional[str] = None,
     search: Optional[str] = None
 ) -> List[Dict[str, Any]]:
@@ -110,7 +94,7 @@ def fetch_audit_logs(
         with conn.cursor() as cur:
             sql = """
                 SELECT 
-                    `task_id`, `query`, `status`, `task_description`, 
+                    `id`, `task_id`, `query`, `status`, `task_description`, 
                     `agent_name`, `llm_name`, `time_taken`, `time_stamp`
                 FROM `logs`
             """
@@ -131,7 +115,7 @@ def fetch_audit_logs(
             if conditions:
                 sql += " WHERE " + " AND ".join(conditions)
 
-            sql += " ORDER BY `time_stamp` DESC LIMIT %s;"
+            sql += " ORDER BY `id` DESC LIMIT %s;"
             params.append(limit)
 
             cur.execute(sql, tuple(params))
@@ -145,6 +129,7 @@ def fetch_audit_logs(
                 formatted_time_taken = f"{time_taken_val:.1f}s" if time_taken_val is not None else "---"
 
                 results.append({
+                    "id": str(r.get("id")),
                     "task_id": r.get("task_id") or "---",
                     "query": r.get("query") or "---",
                     "task_description": r.get("task_description") or "---",
@@ -165,41 +150,9 @@ def fetch_audit_logs(
             conn.close()
 
 
-def fetch_notifications(limit: int = 20) -> List[Dict[str, Any]]:
+def fetch_notifications(limit: int = 50) -> List[Dict[str, Any]]:
     """Retrieves real-time alert notifications directly from RDS MySQL `notifications` table."""
-    conn = None
-    try:
-        conn = get_db_conn()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT `id`, `date`, `time`, `message`, `status`, `created_at`
-                FROM `notifications`
-                ORDER BY `created_at` DESC
-                LIMIT %s;
-                """,
-                (limit,)
-            )
-            rows = cur.fetchall()
-            results = []
-            for r in rows:
-                c_at = r.get("created_at")
-                formatted_cat = c_at.strftime("%Y-%m-%d %H:%M:%S") if c_at else "---"
-                results.append({
-                    "id": str(r.get("id")),
-                    "date": str(r.get("date")) if r.get("date") else "---",
-                    "time": str(r.get("time")) if r.get("time") else "---",
-                    "message": r.get("message") or "---",
-                    "status": r.get("status") or "---",
-                    "created_at": formatted_cat
-                })
-            return results
-    except Exception as e:
-        print(f"[ERROR] Failed to fetch notifications from database: {e}")
-        return []
-    finally:
-        if conn:
-            conn.close()
+    return service_fetch_notifications(limit=limit)
 
 
 def fetch_business_profile_and_user(user_id: str) -> Dict[str, Any]:
@@ -520,8 +473,8 @@ async def run_workflow_coordinator(task_id: str):
                         workflow["error"] = refusal
                         workflow["final_response"] = refusal
                         elapsed = round(time.time() - start_time, 2)
-                        record_log(task_id, query, "Failed", f"Policy Block: {refusal[:100]}", "PolicyEthicsGuardrail", "gemini-3.8-flash", elapsed)
-                        record_notification(f"Task {task_id} rejected by guardrail: {refusal[:80]}", "failed")
+                        record_log(task_id, query, "Failed", f"Step 1: Guardrail Refusal: {refusal[:100]}", "PolicyEthicsGuardrail", "gemini-3.8-flash", elapsed)
+                        record_notification(f"Task {task_id} rejected by guardrail: {refusal[:80]}", "failed", task_id=task_id)
                         return
 
                     log_activity(0, "Policy & ethics guardrails passed (Status: ALLOWED)")
@@ -534,7 +487,7 @@ async def run_workflow_coordinator(task_id: str):
                     workflow["steps"][1]["status"] = "running"
                     workflow["steps"][1]["subtitle"] = "Synthesizing execution plan..."
                     step2_start = time.time()
-                    record_log(task_id, query, "Running", "Guardrails verified, decomposing into DAG plan", "SupervisorAgent", "gemini-3.8-flash")
+                    record_log(task_id, query, "Completed", "Step 1: Intent evaluated & guardrails verified (Status: ALLOWED)", "PolicyEthicsGuardrail", "gemini-3.8-flash", s1_dur)
 
                 # -------------------------------------------------------------
                 # NODE: clarify_hitl
@@ -562,7 +515,15 @@ async def run_workflow_coordinator(task_id: str):
                     workflow["steps"][2]["status"] = "running"
                     workflow["steps"][2]["subtitle"] = "Executing specialist tool operations..."
                     step3_start = time.time()
-                    record_log(task_id, query, "Running", f"Plan synthesized ({steps_count} steps), invoking specialists", "SupervisorAgent", "gemini-3.8-flash")
+                    record_log(
+                        task_id=task_id,
+                        query=query,
+                        status="Completed",
+                        description=f"Step 2: Synthesized verified DAG plan ({steps_count} stages: {services})",
+                        agent_name="SupervisorAgent",
+                        llm_name="gemini-3.8-flash",
+                        time_taken=s2_dur
+                    )
 
                 # -------------------------------------------------------------
                 # NODE: execute_sheet
@@ -571,9 +532,19 @@ async def run_workflow_coordinator(task_id: str):
                     sheet_result = node_output.get("sheet_result")
                     if sheet_result:
                         workflow["sheet_result"] = sheet_result
+                        s_dur = round(time.time() - (step3_start or time.time()), 1)
                         log_activity(2, f"Google Sheet created: '{sheet_result.get('title')}' ({sheet_result.get('row_count')} rows)")
                         if sheet_result.get("spreadsheet_url"):
                             log_activity(2, f"Spreadsheet URL: {sheet_result.get('spreadsheet_url')}")
+                        record_log(
+                            task_id=task_id,
+                            query=query,
+                            status="Completed",
+                            description=f"Step 3: Google Sheet '{sheet_result.get('title')}' created with {sheet_result.get('row_count')} records",
+                            agent_name="SheetAgent",
+                            llm_name="gemini-3.8-flash",
+                            time_taken=s_dur
+                        )
 
                 # -------------------------------------------------------------
                 # NODE: execute_calendar
@@ -582,9 +553,19 @@ async def run_workflow_coordinator(task_id: str):
                     cal_event = node_output.get("calendar_event")
                     if cal_event:
                         workflow["calendar_event"] = cal_event
+                        c_dur = round(time.time() - (step3_start or time.time()), 1)
                         log_activity(2, f"Google Calendar event created: '{cal_event.get('summary')}'")
                         if cal_event.get("meet_link"):
                             log_activity(2, f"Google Meet conference: {cal_event.get('meet_link')}")
+                        record_log(
+                            task_id=task_id,
+                            query=query,
+                            status="Completed",
+                            description=f"Step 3: Booked Google Calendar event '{cal_event.get('summary')}' with video meet link",
+                            agent_name="CalendarAgent",
+                            llm_name="gemini-3.8-flash",
+                            time_taken=c_dur
+                        )
 
                 # -------------------------------------------------------------
                 # NODE: draft_email
@@ -609,7 +590,15 @@ async def run_workflow_coordinator(task_id: str):
                         log_activity(3, f"Draft synthesized: '{draft.get('subject')}'")
                         log_activity(3, f"Recipients: {', '.join(draft.get('to', []))}")
                     log_activity(3, "Human-in-the-Loop review gate engaged (FR-14: Outbound verification required)")
-                    record_log(task_id, query, "Running", f"Drafted email '{draft.get('subject') if draft else ''}', awaiting review", "EmailContentAgent", "gemini-3.8-flash")
+                    record_log(
+                        task_id=task_id,
+                        query=query,
+                        status="Waiting Approval",
+                        description=f"Step 4: Drafted email '{draft.get('subject') if draft else ''}', awaiting supervisory sign-off",
+                        agent_name="EmailContentAgent",
+                        llm_name="gemini-3.8-flash",
+                        time_taken=round(time.time() - step4_start, 1)
+                    )
 
                 # -------------------------------------------------------------
                 # NODE: email_consent_hitl
@@ -631,7 +620,15 @@ async def run_workflow_coordinator(task_id: str):
                         workflow["steps"][4]["status"] = "running"
                         workflow["steps"][4]["subtitle"] = "Dispatching via Gmail API..."
                         step5_start = time.time()
-                        record_log(task_id, query, "Running", "Supervisor approved email, transmitting via Gmail API", "HITL Supervisory Gateway", "gemini-3.8-flash")
+                        record_log(
+                            task_id=task_id,
+                            query=query,
+                            status="Approved",
+                            description="Step 4: Supervisor approved outbound email draft, authorizing Gmail API transmission",
+                            agent_name="HITL Supervisory Gateway",
+                            llm_name="gemini-3.8-flash",
+                            time_taken=s4_dur
+                        )
 
                     elif decision == "rejected":
                         workflow["steps"][3]["status"] = "failed"
@@ -656,8 +653,16 @@ async def run_workflow_coordinator(task_id: str):
                     workflow["steps"][4]["status"] = "failed"
                     workflow["steps"][4]["subtitle"] = "Dispatch aborted"
                     elapsed = round(time.time() - start_time, 2)
-                    record_log(task_id, query, "Rejected", "Supervisor rejected outgoing email consent", "HITL Supervisory Gateway", "gemini-3.8-flash", elapsed)
-                    record_notification(f"Task {task_id} aborted: Supervisor rejected draft.", "failed")
+                    record_log(
+                        task_id=task_id,
+                        query=query,
+                        status="Rejected",
+                        description="Step 4: Dispatch aborted - Supervisor rejected outbound email consent",
+                        agent_name="HITL Supervisory Gateway",
+                        llm_name="gemini-3.8-flash",
+                        time_taken=elapsed
+                    )
+                    record_notification(f"Task {task_id} aborted: Supervisor rejected draft.", "rejected", task_id=task_id)
                     return
 
                 # -------------------------------------------------------------
@@ -669,6 +674,15 @@ async def run_workflow_coordinator(task_id: str):
                     workflow["steps"][4]["duration"] = f"{s5_dur}s"
                     workflow["steps"][4]["subtitle"] = f"Dispatched successfully · {s5_dur}s"
                     log_activity(4, "Email successfully transmitted via Gmail API endpoint.")
+                    record_log(
+                        task_id=task_id,
+                        query=query,
+                        status="Completed",
+                        description="Step 5: Outbound email dispatched successfully via Gmail API",
+                        agent_name="Gmail Specialist",
+                        llm_name="gemini-3.8-flash",
+                        time_taken=s5_dur
+                    )
 
                     workflow["current_step_index"] = 5
                     workflow["steps"][5]["status"] = "running"
@@ -694,14 +708,15 @@ async def run_workflow_coordinator(task_id: str):
                         task_id=task_id,
                         query=query,
                         status="Completed",
-                        description=f"Completed automated workflow: {query[:120]}",
+                        description=f"Step 6: Workflow task completed successfully in {total_elapsed}s",
                         agent_name="AxiomFlow Multi-Agent Pipeline",
                         llm_name="gemini-3.8-flash",
                         time_taken=total_elapsed
                     )
                     record_notification(
                         message=f"Workflow {task_id} completed successfully in {total_elapsed}s",
-                        status="succeeded"
+                        status="succeeded",
+                        task_id=task_id
                     )
 
     except Exception as err:
@@ -727,7 +742,8 @@ async def run_workflow_coordinator(task_id: str):
         )
         record_notification(
             message=f"Workflow task {task_id} failed: {str(err)[:80]}",
-            status="failed"
+            status="failed",
+            task_id=task_id
         )
 
 

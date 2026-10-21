@@ -6,6 +6,7 @@ import DashboardHeader, { DashboardTab } from "@/components/dashboard/DashboardH
 import WorkflowView from "@/components/dashboard/WorkflowView";
 import LogsView from "@/components/dashboard/LogsView";
 import ConnectView from "@/components/dashboard/ConnectView";
+import NotificationsView from "@/components/dashboard/NotificationsView";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -38,6 +39,9 @@ export default function DashboardPage() {
             <ConnectView onBackToWorkflow={() => setActiveTab("workflow")} />
           )}
           {activeTab === "logs" && <LogsView />}
+          {activeTab === "notifications" && (
+            <NotificationsView onNavigateToWorkflow={() => setActiveTab("workflow")} />
+          )}
         </div>
       </main>
     </div>

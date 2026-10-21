@@ -4,7 +4,8 @@ from typing import Optional
 from contextlib import contextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Request
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 import pymysql
@@ -362,11 +363,51 @@ def get_logs_endpoint(
     )
     return {"logs": logs_data, "total": len(logs_data)}
 
+import notification_service
+
 @app.get("/api/notifications")
-def get_notifications_endpoint(limit: int = 20):
+def get_notifications_endpoint(limit: int = 50):
     """Fetches real-time alert notifications directly from MySQL axiomflow_db.notifications table."""
-    notifs = workflow_service.fetch_notifications(limit=limit)
+    notifs = notification_service.fetch_notifications(limit=limit)
     return {"notifications": notifs, "total": len(notifs)}
+
+@app.get("/api/notifications/events")
+async def notifications_events_stream(request: Request):
+    """
+    Server-Sent Events (SSE) stream endpoint for real-time notification dispatch.
+    Complies with W3C EventSource standard and provides instant push notifications.
+    """
+    return StreamingResponse(
+        notification_service.sse_event_stream(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
+
+class TestNotificationPayload(BaseModel):
+    message: Optional[str] = "Workflow execution completed successfully in 12.4s"
+    status: Optional[str] = "succeeded"
+    task_id: Optional[str] = "TSK_TEST1234"
+
+@app.post("/api/notifications/test")
+def trigger_test_notification(payload: Optional[TestNotificationPayload] = None):
+    """Trigger a live test notification that records to DB, sends plyer desktop alert, and pushes SSE."""
+    msg = payload.message if payload and payload.message else "Workflow execution completed successfully in 12.4s"
+    st = payload.status if payload and payload.status else "succeeded"
+    tid = payload.task_id if payload and payload.task_id else "TSK_TEST1234"
+    nid = notification_service.record_notification(message=msg, status=st, task_id=tid)
+    return {"success": True, "id": nid, "message": "Notification dispatched via DB, plyer, and SSE."}
+
+@app.delete("/api/notifications")
+@app.post("/api/notifications/clear")
+def clear_notifications_endpoint():
+    """Clears all notifications from axiomflow_db.notifications."""
+    success = notification_service.clear_all_notifications()
+    return {"success": success, "message": "All notifications cleared from database."}
 
 @app.get("/api/user/profile/{user_id}")
 def get_user_profile_endpoint(user_id: str):
