@@ -25,9 +25,10 @@ class RevokeRequest(BaseModel):
     user_id: str
     account_email: str
 
+from database import get_db_connection
+
 def get_db():
-    import main
-    conn = main.get_db_connection()
+    conn = get_db_connection()
     try:
         yield conn
     finally:

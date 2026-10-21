@@ -44,17 +44,7 @@ app.add_middleware(
 from google_oauth import router as google_oauth_router
 app.include_router(google_oauth_router)
 
-def get_db_connection():
-    return pymysql.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        connect_timeout=10,
-        autocommit=False,  # Transactions handled explicitly
-        cursorclass=pymysql.cursors.DictCursor
-    )
+from database import get_db_connection
 
 # --- Pydantic Schemas ---
 
@@ -436,6 +426,42 @@ def approve_workflow_endpoint(payload: WorkflowApprovalPayload):
             detail=f"Active approval gateway for task '{payload.task_id}' not found."
         )
     return {"success": True, "message": f"Supervisory clearance '{payload.decision}' registered."}
+
+class WorkflowControlPayload(BaseModel):
+    task_id: str
+
+@app.post("/api/workflow/pause")
+def pause_workflow_endpoint(payload: WorkflowControlPayload):
+    """Pauses an actively running workflow task."""
+    ok = workflow_service.pause_workflow(payload.task_id)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow with task ID '{payload.task_id}' not found."
+        )
+    return {"success": True, "message": f"Task '{payload.task_id}' paused."}
+
+@app.post("/api/workflow/resume")
+def resume_workflow_endpoint(payload: WorkflowControlPayload):
+    """Resumes a paused workflow task."""
+    ok = workflow_service.resume_workflow(payload.task_id)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow with task ID '{payload.task_id}' not found."
+        )
+    return {"success": True, "message": f"Task '{payload.task_id}' resumed."}
+
+@app.post("/api/workflow/stop")
+def stop_workflow_endpoint(payload: WorkflowControlPayload):
+    """Aborts and stops an active workflow task."""
+    ok = workflow_service.stop_workflow(payload.task_id)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow with task ID '{payload.task_id}' not found."
+        )
+    return {"success": True, "message": f"Task '{payload.task_id}' stopped."}
 
 if __name__ == "__main__":
     import uvicorn

@@ -3,7 +3,7 @@ import sys
 import time
 import uuid
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 # Ensure backend root is on sys.path
@@ -15,25 +15,26 @@ import pymysql
 from dotenv import load_dotenv
 load_dotenv()
 
-from agents.supervisior.node import SupervisorAgent
-from agents.specialists.calendar_agent import CalendarAgent
-from agents.specialists.sheet_agent import SheetAgent
-from agents.specialists.content_agent import EmailContentAgent
-from tools.gmail_tools import gmail_mcp
+from agents.graph import build_workflow_graph
+from agents.state import WorkflowState
+from database import get_db_connection as get_db_conn
 
-# In-memory storage for real-time telemetry and running workflow states
+import threading
+
+# In-memory storage for active workflows and stateful signals
 ACTIVE_WORKFLOWS: Dict[str, Dict[str, Any]] = {}
-APPROVAL_EVENTS: Dict[str, asyncio.Event] = {}
+APPROVAL_EVENTS: Dict[str, threading.Event] = {}
 APPROVAL_DECISIONS: Dict[str, Dict[str, Any]] = {}
-
-
-def get_db_conn():
-    import main
-    return main.get_db_connection()
+PAUSE_EVENTS: Dict[str, threading.Event] = {}
+STOP_SIGNALS: Dict[str, bool] = {}
 
 
 def record_notification(message: str, status: str = "info") -> Optional[int]:
-    """Inserts a real-time event record into axiomflow_db.notifications table."""
+    """
+    Inserts a record into axiomflow_db.notifications table.
+    CRITICAL RULE: Notifications are ONLY triggered after execution terminates
+    (status = completed or failed/rejected). Never on startup or intermediate steps.
+    """
     conn = None
     try:
         conn = get_db_conn()
@@ -65,7 +66,10 @@ def record_log(
     llm_name: str = "gemini-3.8-flash",
     time_taken: Optional[float] = None
 ):
-    """Inserts or updates an audit log entry in axiomflow_db.logs table."""
+    """
+    Inserts or updates an audit log entry in axiomflow_db.logs table.
+    Updates continuously in runtime as agents generate artifacts and steps run.
+    """
     conn = None
     try:
         conn = get_db_conn()
@@ -241,7 +245,7 @@ def fetch_business_profile_and_user(user_id: str) -> Dict[str, Any]:
         if conn:
             conn.close()
 
-    # Fallback if DB fetch fails
+    # Fallback default
     return {
         "user_id": user_id,
         "user_name": "Yash",
@@ -259,7 +263,7 @@ def fetch_business_profile_and_user(user_id: str) -> Dict[str, Any]:
 
 
 def create_initial_workflow_steps(query: str) -> List[Dict[str, Any]]:
-    """Creates the 6 deterministic DAG steps for real-time progress tracking."""
+    """Creates the 6 deterministic DAG steps for real-time progress tracking in the dashboard."""
     now_str = datetime.now().strftime("%H:%M:%S")
     return [
         {
@@ -328,431 +332,65 @@ def create_initial_workflow_steps(query: str) -> List[Dict[str, Any]]:
     ]
 
 
-async def run_workflow_coordinator(task_id: str):
-    """
-    Background executor that guides the Agentic AI pipeline through real-time stages,
-    interfacing with AWS RDS MySQL axiomflow_db for logging and alerts.
-    """
-    workflow = ACTIVE_WORKFLOWS.get(task_id)
-    if not workflow:
-        return
-
-    query = workflow["query"]
-    user_id = workflow["user_id"]
-    account_email = workflow["account_email"]
-    start_time = workflow["start_time"]
-    business_context = workflow["business_context"]
-    auto_approve = workflow.get("auto_approve", False)
-
-    def log_activity(step_idx: int, message: str):
-        now_str = datetime.now().strftime("%H:%M:%S")
-        if step_idx < len(workflow["steps"]):
-            workflow["steps"][step_idx]["activityLogs"].append({
-                "time": now_str,
-                "message": message
-            })
-
-    try:
-        # =========================================================================
-        # STEP 1: Understand Objective & Policy Guardrails
-        # =========================================================================
-        workflow["current_step_index"] = 0
-        workflow["steps"][0]["status"] = "running"
-        workflow["steps"][0]["subtitle"] = "Checking ethics & guardrails..."
-
-        supervisor = SupervisorAgent()
-        # Assess sufficiency and policy checks
-        assessment = supervisor.assess_sufficiency(request=query, business_context=business_context)
-        policy_check = assessment.policy_check
-
-        if policy_check and not policy_check.is_allowed:
-            log_activity(0, f"GUARDRAIL BLOCKED: {policy_check.violation_reason}")
-            log_activity(0, f"Refusal statement: {policy_check.refusal_message}")
-            workflow["steps"][0]["status"] = "failed"
-            workflow["steps"][0]["subtitle"] = "Blocked by safety guardrail"
-            workflow["status"] = "failed"
-            workflow["error"] = policy_check.refusal_message
-            workflow["final_response"] = policy_check.refusal_message
-
-            elapsed = round(time.time() - start_time, 2)
-            record_log(
-                task_id=task_id,
-                query=query,
-                status="Failed",
-                description=f"Policy Block: {policy_check.violation_reason}",
-                agent_name="PolicyEthicsGuardrail",
-                llm_name="gemini-3.8-flash",
-                time_taken=elapsed
-            )
-            record_notification(
-                message=f"Task {task_id} rejected by guardrail: {policy_check.violation_reason}",
-                status="failed"
-            )
-            return
-
-        log_activity(0, "Policy & ethics guardrails passed (Status: ALLOWED)")
-        if assessment.is_sufficient:
-            log_activity(0, "Objective evaluated: Sufficient parameters provided for tool execution")
-        else:
-            log_activity(0, f"Missing fields noted: {', '.join(assessment.missing_fields or ['context'])}")
-
-        step1_duration = round(time.time() - start_time, 1)
-        workflow["steps"][0]["status"] = "completed"
-        workflow["steps"][0]["duration"] = f"{step1_duration}s"
-        workflow["steps"][0]["subtitle"] = f"Guardrails verified · {step1_duration}s"
-
-        # =========================================================================
-        # STEP 2: Synthesize Execution Plan
-        # =========================================================================
-        workflow["current_step_index"] = 1
-        workflow["steps"][1]["status"] = "running"
-        workflow["steps"][1]["subtitle"] = "Generating DAG blueprint..."
-        s2_start = time.time()
-        log_activity(1, "Decomposing query into capability-directed action plan")
-
-        plan = supervisor.create_plan(
-            request=query,
-            business_context=business_context,
-            clarification_answers={"meeting_url_preference": "auto-generate meet link"}
-        )
-        workflow["plan"] = plan.model_dump()
-        services_str = ", ".join(plan.identified_services) if plan.identified_services else "Google Workspace"
-        log_activity(1, f"Identified external capabilities: [{services_str}]")
-        log_activity(1, f"Produced {len(plan.steps)}-node verified DAG plan with safety gates")
-
-        s2_duration = round(time.time() - s2_start, 1)
-        workflow["steps"][1]["status"] = "completed"
-        workflow["steps"][1]["duration"] = f"{s2_duration}s"
-        workflow["steps"][1]["subtitle"] = f"{len(plan.steps)} steps planned · {s2_duration}s"
-
-        # =========================================================================
-        # STEP 3: Execute Specialist Tool Operations (Calendar / Sheets)
-        # =========================================================================
-        workflow["current_step_index"] = 2
-        workflow["steps"][2]["status"] = "running"
-        workflow["steps"][2]["subtitle"] = "Executing tool operations..."
-        s3_start = time.time()
-
-        calendar_event = None
-        sheet_result = None
-
-        has_sheets = any("sheet" in s.capability.lower() for s in plan.steps) or "sheet" in query.lower() or "spreadsheet" in query.lower()
-        has_calendar = any("calendar" in s.capability.lower() for s in plan.steps) or "meeting" in query.lower() or "schedule" in query.lower() or not has_sheets
-
-        if has_sheets:
-            log_activity(2, "Invoking Google Sheets Specialist via FastMCP...")
-            try:
-                sheet_agent = SheetAgent()
-                # Run sheet creation
-                sheet_result = await sheet_agent.create_and_populate_sheet(
-                    user_id=user_id,
-                    account_email=account_email,
-                    title="AxiomFlow Financial Reconciliation",
-                    headers=["Account ID", "Category", "Amount (INR)", "Status", "Settlement Date"],
-                    rows=[
-                        ["ACC-101", "Accounts Receivable", 45000.0, "PAID", "2026-10-18"],
-                        ["ACC-102", "Vendor Retainer", 12500.0, "OVERDUE", "2026-10-15"],
-                        ["ACC-103", "Statutory GSTN", 8900.0, "CLEARED", "2026-10-19"]
-                    ]
-                )
-                workflow["sheet_result"] = sheet_result.model_dump()
-                log_activity(2, f"Sheet generated: {sheet_result.title} (ID: {sheet_result.spreadsheet_id[:12]}...)")
-                log_activity(2, f"Populated {sheet_result.row_count} rows. Exported inline CSV attachment.")
-            except Exception as e:
-                log_activity(2, f"Sheet Tool warning: {e}. Generating structured mock fallback payload.")
-                sheet_result = None
-
-        if has_calendar:
-            log_activity(2, "Invoking Google Calendar Specialist via FastMCP...")
-            try:
-                cal_agent = CalendarAgent()
-                spec = cal_agent.interpret_event_parameters(
-                    request=query,
-                    plan_parameters={},
-                    clarification_answers={"duration": "60 minutes", "receiver_email": "yashvary13@gmail.com"}
-                )
-                log_activity(2, f"Parsed event spec: '{spec.summary}' on {spec.date} @ {spec.start_time}")
-                calendar_res = await cal_agent.schedule_event_via_mcp(
-                    user_id=user_id,
-                    account_email=account_email,
-                    spec=spec
-                )
-                calendar_event = calendar_res.model_dump()
-                workflow["calendar_event"] = calendar_event
-                log_activity(2, f"Google Calendar event created successfully (ID: {calendar_res.event_id})")
-                if calendar_res.meet_link:
-                    log_activity(2, f"Google Meet conference link generated: {calendar_res.meet_link}")
-            except Exception as e:
-                log_activity(2, f"Calendar tool notice: {e}")
-                calendar_event = {
-                    "event_id": f"cal_{uuid.uuid4().hex[:10]}",
-                    "summary": "Revenue Discussion Meeting",
-                    "start_time": "2026-10-26T16:00:00+05:30",
-                    "end_time": "2026-10-26T17:00:00+05:30",
-                    "meet_link": "https://meet.google.com/zqy-mkbn-xwv",
-                    "attendees": ["finance.team@axiomflow.internal"]
-                }
-                workflow["calendar_event"] = calendar_event
-                log_activity(2, f"Recorded event reference: {calendar_event['summary']}")
-
-        s3_duration = round(time.time() - s3_start, 1)
-        workflow["steps"][2]["status"] = "completed"
-        workflow["steps"][2]["duration"] = f"{s3_duration}s"
-        workflow["steps"][2]["subtitle"] = f"Tool operations executed · {s3_duration}s"
-
-        # =========================================================================
-        # STEP 4: Email Drafting & Human Approval Gate (FR-14)
-        # =========================================================================
-        workflow["current_step_index"] = 3
-        workflow["steps"][3]["status"] = "running"
-        workflow["steps"][3]["subtitle"] = "Drafting personalized email..."
-        s4_start = time.time()
-        log_activity(3, "Invoking Email Content Specialist for personalized draft synthesis")
-
-        email_agent = EmailContentAgent()
-        draft = email_agent.draft_email(
-            user_message=query,
-            business_context=business_context,
-            calendar_event=calendar_event,
-            sheet_result=sheet_result
-        )
-        workflow["email_draft"] = draft.model_dump()
-        log_activity(3, f"Draft synthesized with subject: '{draft.subject}'")
-        log_activity(3, f"Recipients: {', '.join(draft.to)}")
-        log_activity(3, "Human-in-the-Loop review gate engaged (FR-14: Outbound verification required)")
-
-        if not auto_approve:
-            workflow["steps"][3]["status"] = "waiting"
-            workflow["steps"][3]["subtitle"] = "Needs your approval"
-            workflow["status"] = "waiting_approval"
-
-            # Create notification in database for user
-            record_notification(
-                message=f"Task {task_id}: Outbound email draft prepared. Human approval required.",
-                status="pending"
-            )
-
-            # Wait for approval signal from frontend
-            approval_event = asyncio.Event()
-            APPROVAL_EVENTS[task_id] = approval_event
-
-            try:
-                # Wait up to 300 seconds (5 mins) for approval
-                await asyncio.wait_for(approval_event.wait(), timeout=300)
-            except asyncio.TimeoutError:
-                log_activity(3, "Approval window timed out (FR-16: Automated dispatch halted safely).")
-                workflow["steps"][3]["status"] = "failed"
-                workflow["steps"][3]["subtitle"] = "Approval timed out"
-                workflow["status"] = "failed"
-                record_log(
-                    task_id=task_id,
-                    query=query,
-                    status="Failed",
-                    description="Human approval timed out",
-                    agent_name="HITL Supervisory Gateway",
-                    time_taken=round(time.time() - start_time, 2)
-                )
-                return
-
-            decision_data = APPROVAL_DECISIONS.get(task_id, {"decision": "accepted"})
-            decision = decision_data.get("decision", "accepted")
-
-            if decision == "rejected":
-                log_activity(3, "Supervisor rejected draft. Dispatch cleanly aborted with zero emails sent.")
-                workflow["steps"][3]["status"] = "failed"
-                workflow["steps"][3]["subtitle"] = "Rejected by supervisor"
-                workflow["status"] = "rejected"
-                elapsed = round(time.time() - start_time, 2)
-                record_log(
-                    task_id=task_id,
-                    query=query,
-                    status="Rejected",
-                    description="User rejected outgoing email consent",
-                    agent_name="HITL Supervisory Gateway",
-                    time_taken=elapsed
-                )
-                record_notification(
-                    message=f"Task {task_id} aborted: Supervisor rejected draft.",
-                    status="failed"
-                )
-                return
-            elif decision == "updated":
-                user_feedback = decision_data.get("user_feedback") or "Make tone more executive."
-                log_activity(3, f"Supervisor requested updates: '{user_feedback}'")
-                revised = email_agent.revise_email(
-                    current_draft=workflow["email_draft"],
-                    user_feedback=user_feedback,
-                    business_context=business_context
-                )
-                workflow["email_draft"] = revised.model_dump()
-                log_activity(3, "Draft revised according to supervisor edits.")
-
-            log_activity(3, "Supervisor approval confirmed. Cryptographic clearance registered.")
-
-        s4_duration = round(time.time() - s4_start, 1)
-        workflow["steps"][3]["status"] = "completed"
-        workflow["steps"][3]["duration"] = f"{s4_duration}s"
-        workflow["steps"][3]["subtitle"] = f"Approved by supervisor · {s4_duration}s"
-
-        # =========================================================================
-        # STEP 5: Secure Dispatch via FastMCP Gmail Tool
-        # =========================================================================
-        workflow["current_step_index"] = 4
-        workflow["steps"][4]["status"] = "running"
-        workflow["steps"][4]["subtitle"] = "Dispatching via Gmail API..."
-        s5_start = time.time()
-        log_activity(4, f"Connecting to Gmail API for authorized user {account_email}")
-
-        draft_data = workflow["email_draft"]
-        try:
-            mcp_args = {
-                "user_id": user_id,
-                "account_email": account_email,
-                "to": draft_data.get("to", []),
-                "subject": draft_data.get("subject", "AxiomFlow Automated Dispatch"),
-                "body": draft_data.get("body", ""),
-                "cc": draft_data.get("cc", []),
-                "bcc": draft_data.get("bcc", []),
-                "attachments": draft_data.get("attachments", [])
-            }
-            mcp_res = await gmail_mcp.call_tool("gmail_send_email", mcp_args)
-            if mcp_res.is_error:
-                log_activity(4, f"Gmail API Notice: {mcp_res.content}")
-            else:
-                log_activity(4, "Email successfully transmitted via Gmail API endpoint.")
-        except Exception as e:
-            log_activity(4, f"Gmail dispatch status: {e}. Verified transmission simulation recorded.")
-
-        s5_duration = round(time.time() - s5_start, 1)
-        workflow["steps"][4]["status"] = "completed"
-        workflow["steps"][4]["duration"] = f"{s5_duration}s"
-        workflow["steps"][4]["subtitle"] = f"Dispatched successfully · {s5_duration}s"
-
-        # =========================================================================
-        # STEP 6: Audit Telemetry Recording in axiomflow_db
-        # =========================================================================
-        workflow["current_step_index"] = 5
-        workflow["steps"][5]["status"] = "running"
-        workflow["steps"][5]["subtitle"] = "Persisting audit telemetry..."
-        s6_start = time.time()
-        log_activity(5, "Compiling end-to-end execution audit trail")
-
-        total_elapsed = round(time.time() - start_time, 2)
-        record_log(
-            task_id=task_id,
-            query=query,
-            status="Completed",
-            description=f"Completed automated workflow: {query[:120]}",
-            agent_name="AxiomFlow Multi-Agent Pipeline",
-            llm_name="gemini-3.8-flash",
-            time_taken=total_elapsed
-        )
-        record_notification(
-            message=f"Workflow {task_id} completed successfully in {total_elapsed}s",
-            status="succeeded"
-        )
-        log_activity(5, "Appended execution telemetry to axiomflow_db.logs and axiomflow_db.notifications")
-
-        s6_duration = round(time.time() - s6_start, 1)
-        workflow["steps"][5]["status"] = "completed"
-        workflow["steps"][5]["duration"] = f"{s6_duration}s"
-        workflow["steps"][5]["subtitle"] = f"Logged to MySQL axiomflow_db · {s6_duration}s"
-
-        workflow["status"] = "completed"
-        workflow["final_response"] = (
-            f"Execution finished in {total_elapsed}s. Google Workspace tools invoked, "
-            f"email drafted and dispatched under supervisory clearance. Telemetry recorded in MySQL."
-        )
-
-    except Exception as err:
-        elapsed = round(time.time() - start_time, 2)
-        print(f"[ERROR] Workflow execution exception: {err}")
-        curr_idx = workflow.get("current_step_index", 0)
-        log_activity(curr_idx, f"Encountered runtime error: {str(err)}")
-        if curr_idx < len(workflow["steps"]):
-            workflow["steps"][curr_idx]["status"] = "failed"
-            workflow["steps"][curr_idx]["subtitle"] = "Encountered runtime failure"
-
-        workflow["status"] = "failed"
-        workflow["error"] = str(err)
-
-        record_log(
-            task_id=task_id,
-            query=query,
-            status="Failed",
-            description=f"Error: {str(err)}",
-            agent_name="SupervisorAgent",
-            llm_name="gemini-3.8-flash",
-            time_taken=elapsed
-        )
-        record_notification(
-            message=f"Workflow task {task_id} failed: {str(err)[:80]}",
-            status="failed"
-        )
+# Web-session HITL Gate Functions
+def set_workflow_waiting_approval(task_id: str, draft: Dict[str, Any]):
+    """Called by email_consent_hitl_node when running in a web session."""
+    if task_id in ACTIVE_WORKFLOWS:
+        ACTIVE_WORKFLOWS[task_id]["status"] = "waiting_approval"
+        ACTIVE_WORKFLOWS[task_id]["email_draft"] = draft
+        steps = ACTIVE_WORKFLOWS[task_id].get("steps", [])
+        if len(steps) > 3:
+            steps[3]["status"] = "waiting"
+            steps[3]["subtitle"] = "Needs your approval"
 
 
-def start_new_workflow(
-    query: str,
-    user_id: str = "usr_72b30e7cd49e49e5",
-    business_id: int = 2,
-    account_email: str = "chillalyash2005@gmail.com",
-    auto_approve: bool = False
-) -> str:
-    """
-    Initializes a new real-time workflow run, records it to the MySQL logs & notifications tables,
-    and launches background task execution.
-    """
-    task_id = f"TSK_{uuid.uuid4().hex[:8].upper()}"
-    business_context = fetch_business_profile_and_user(user_id)
+def get_or_create_approval_event(task_id: str) -> threading.Event:
+    """Returns or creates the threading.Event that pauses execution until user approves/rejects."""
+    if task_id not in APPROVAL_EVENTS:
+        APPROVAL_EVENTS[task_id] = threading.Event()
+    return APPROVAL_EVENTS[task_id]
 
-    # Record initial log entry in DB
-    record_log(
-        task_id=task_id,
-        query=query,
-        status="Running",
-        description="Workflow execution initialized",
-        agent_name="Supervisor Agent",
-        llm_name="gemini-3.8-flash",
-        time_taken=None
-    )
 
-    # Record notification in DB
-    record_notification(
-        message=f"Workflow task {task_id} started: {query[:60]}",
-        status="running"
-    )
+def get_approval_decision(task_id: str) -> Dict[str, Any]:
+    """Retrieves the supervisory decision supplied via web UI."""
+    return APPROVAL_DECISIONS.get(task_id, {"decision": "accepted"})
 
-    steps = create_initial_workflow_steps(query)
 
-    ACTIVE_WORKFLOWS[task_id] = {
-        "task_id": task_id,
-        "query": query,
-        "user_id": user_id,
-        "business_id": business_id,
-        "account_email": account_email,
-        "business_context": business_context,
-        "status": "running",
-        "start_time": time.time(),
-        "steps": steps,
-        "current_step_index": 0,
-        "email_draft": None,
-        "calendar_event": None,
-        "sheet_result": None,
-        "auto_approve": auto_approve,
-        "final_response": None,
-        "error": None
-    }
+def pause_workflow(task_id: str) -> bool:
+    """Pauses the workflow coordinator."""
+    if task_id in ACTIVE_WORKFLOWS:
+        ACTIVE_WORKFLOWS[task_id]["is_paused"] = True
+        if task_id not in PAUSE_EVENTS:
+            PAUSE_EVENTS[task_id] = threading.Event()
+        PAUSE_EVENTS[task_id].clear()
+        return True
+    return False
 
-    # Launch execution as background async task or background thread
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(run_workflow_coordinator(task_id))
-    except RuntimeError:
-        import threading
-        t = threading.Thread(target=lambda: asyncio.run(run_workflow_coordinator(task_id)), daemon=True)
-        t.start()
 
-    return task_id
+def resume_workflow(task_id: str) -> bool:
+    """Resumes the paused workflow coordinator."""
+    if task_id in ACTIVE_WORKFLOWS:
+        ACTIVE_WORKFLOWS[task_id]["is_paused"] = False
+        if task_id in PAUSE_EVENTS:
+            PAUSE_EVENTS[task_id].set()
+        return True
+    return False
+
+
+def stop_workflow(task_id: str) -> bool:
+    """Aborts the workflow coordinator immediately."""
+    if task_id in ACTIVE_WORKFLOWS:
+        ACTIVE_WORKFLOWS[task_id]["is_stopped"] = True
+        ACTIVE_WORKFLOWS[task_id]["status"] = "failed"
+        ACTIVE_WORKFLOWS[task_id]["error"] = "Workflow interrupted by supervisor."
+        STOP_SIGNALS[task_id] = True
+        if task_id in APPROVAL_EVENTS:
+            APPROVAL_DECISIONS[task_id] = {"decision": "rejected", "user_feedback": "Stopped by supervisor"}
+            APPROVAL_EVENTS[task_id].set()
+        if task_id in PAUSE_EVENTS:
+            PAUSE_EVENTS[task_id].set()
+        return True
+    return False
 
 
 def approve_workflow_step(
@@ -771,14 +409,385 @@ def approve_workflow_step(
 
     APPROVAL_DECISIONS[task_id] = {
         "decision": decision,
-        "user_feedback": user_feedback
+        "user_feedback": user_feedback,
+        "edited_body": edited_body
     }
 
     if task_id in APPROVAL_EVENTS:
         APPROVAL_EVENTS[task_id].set()
         return True
 
-    return False
+    return True
+
+
+async def run_workflow_coordinator(task_id: str):
+    """
+    Background executor running the real compiled LangGraph state machine.
+    Streams node transitions, logs audit events to axiomflow_db.logs in runtime,
+    and records exactly ONE notification upon terminal completion or failure.
+    """
+    workflow = ACTIVE_WORKFLOWS.get(task_id)
+    if not workflow:
+        return
+
+    query = workflow["query"]
+    user_id = workflow["user_id"]
+    account_email = workflow["account_email"]
+    business_id = workflow["business_id"]
+    start_time = workflow["start_time"]
+    business_context = workflow["business_context"]
+    auto_approve = workflow.get("auto_approve", False)
+
+    def log_activity(step_idx: int, message: str):
+        now_str = datetime.now().strftime("%H:%M:%S")
+        if step_idx < len(workflow["steps"]):
+            workflow["steps"][step_idx]["activityLogs"].append({
+                "time": now_str,
+                "message": message
+            })
+
+    # Prepare LangGraph state
+    initial_state: WorkflowState = {
+        "run_id": task_id,
+        "task_id": task_id,
+        "is_web_session": True,
+        "tenant_id": "tenant_axiomflow_main",
+        "user_id": user_id,
+        "business_id": business_id or 2,
+        "account_email": account_email,
+        "request": query,
+        "business_context": business_context or {},
+        "current_step_index": 0,
+        "tool_outcomes": [],
+        "fallback_logs": [],
+        "errors": [],
+        "revision_count": 0,
+        "status": "initializing"
+    }
+
+    if auto_approve:
+        initial_state["email_consent"] = {
+            "decision": "accepted",
+            "revision_count": 0
+        }
+
+    step1_start = start_time
+    step2_start = None
+    step3_start = None
+    step4_start = None
+    step5_start = None
+    step6_start = None
+
+    try:
+        graph = build_workflow_graph()
+
+        async for chunk in graph.astream(initial_state):
+            # Check for user stop signal
+            if STOP_SIGNALS.get(task_id) or workflow.get("is_stopped"):
+                log_activity(workflow.get("current_step_index", 0), "Workflow interrupted by supervisor.")
+                elapsed = round(time.time() - start_time, 2)
+                record_log(task_id, query, "Failed", "Interrupted by user", "SupervisorAgent", "gemini-3.8-flash", elapsed)
+                record_notification(f"Workflow {task_id} interrupted by user.", "failed")
+                return
+
+            # Check for user pause signal
+            while workflow.get("is_paused"):
+                if task_id not in PAUSE_EVENTS:
+                    PAUSE_EVENTS[task_id] = threading.Event()
+                await asyncio.to_thread(PAUSE_EVENTS[task_id].wait, 0.5)
+
+            for node_name, node_output in chunk.items():
+                # -------------------------------------------------------------
+                # NODE: retrieve_context
+                # -------------------------------------------------------------
+                if node_name == "retrieve_context":
+                    ctx = node_output.get("business_context")
+                    if ctx:
+                        workflow["business_context"] = ctx
+                        log_activity(0, f"Retrieved business context for '{ctx.get('business_name', 'Axiomflow')}'")
+
+                # -------------------------------------------------------------
+                # NODE: understand
+                # -------------------------------------------------------------
+                elif node_name == "understand":
+                    status = node_output.get("status")
+                    if status == "policy_rejected":
+                        refusal = node_output.get("final_response", "Blocked by safety and policy guardrails.")
+                        workflow["steps"][0]["status"] = "failed"
+                        workflow["steps"][0]["subtitle"] = "Blocked by safety guardrail"
+                        log_activity(0, f"GUARDRAIL BLOCKED: {refusal}")
+                        workflow["status"] = "failed"
+                        workflow["error"] = refusal
+                        workflow["final_response"] = refusal
+                        elapsed = round(time.time() - start_time, 2)
+                        record_log(task_id, query, "Failed", f"Policy Block: {refusal[:100]}", "PolicyEthicsGuardrail", "gemini-3.8-flash", elapsed)
+                        record_notification(f"Task {task_id} rejected by guardrail: {refusal[:80]}", "failed")
+                        return
+
+                    log_activity(0, "Policy & ethics guardrails passed (Status: ALLOWED)")
+                    s1_dur = round(time.time() - step1_start, 1)
+                    workflow["steps"][0]["status"] = "completed"
+                    workflow["steps"][0]["duration"] = f"{s1_dur}s"
+                    workflow["steps"][0]["subtitle"] = f"Guardrails verified · {s1_dur}s"
+
+                    workflow["current_step_index"] = 1
+                    workflow["steps"][1]["status"] = "running"
+                    workflow["steps"][1]["subtitle"] = "Synthesizing execution plan..."
+                    step2_start = time.time()
+                    record_log(task_id, query, "Running", "Guardrails verified, decomposing into DAG plan", "SupervisorAgent", "gemini-3.8-flash")
+
+                # -------------------------------------------------------------
+                # NODE: clarify_hitl
+                # -------------------------------------------------------------
+                elif node_name == "clarify_hitl":
+                    log_activity(0, "Supervisory clarification parameters resolved.")
+
+                # -------------------------------------------------------------
+                # NODE: plan
+                # -------------------------------------------------------------
+                elif node_name == "plan":
+                    plan = node_output.get("plan", {})
+                    workflow["plan"] = plan
+                    steps_count = len(plan.get("steps", []))
+                    services = ", ".join(plan.get("identified_services", [])) or "Google Workspace"
+                    log_activity(1, f"Identified external capabilities: [{services}]")
+                    log_activity(1, f"Synthesized verified DAG plan with {steps_count} atomic stages")
+
+                    s2_dur = round(time.time() - (step2_start or time.time()), 1)
+                    workflow["steps"][1]["status"] = "completed"
+                    workflow["steps"][1]["duration"] = f"{s2_dur}s"
+                    workflow["steps"][1]["subtitle"] = f"{steps_count} steps planned · {s2_dur}s"
+
+                    workflow["current_step_index"] = 2
+                    workflow["steps"][2]["status"] = "running"
+                    workflow["steps"][2]["subtitle"] = "Executing specialist tool operations..."
+                    step3_start = time.time()
+                    record_log(task_id, query, "Running", f"Plan synthesized ({steps_count} steps), invoking specialists", "SupervisorAgent", "gemini-3.8-flash")
+
+                # -------------------------------------------------------------
+                # NODE: execute_sheet
+                # -------------------------------------------------------------
+                elif node_name == "execute_sheet":
+                    sheet_result = node_output.get("sheet_result")
+                    if sheet_result:
+                        workflow["sheet_result"] = sheet_result
+                        log_activity(2, f"Google Sheet created: '{sheet_result.get('title')}' ({sheet_result.get('row_count')} rows)")
+                        if sheet_result.get("spreadsheet_url"):
+                            log_activity(2, f"Spreadsheet URL: {sheet_result.get('spreadsheet_url')}")
+
+                # -------------------------------------------------------------
+                # NODE: execute_calendar
+                # -------------------------------------------------------------
+                elif node_name == "execute_calendar":
+                    cal_event = node_output.get("calendar_event")
+                    if cal_event:
+                        workflow["calendar_event"] = cal_event
+                        log_activity(2, f"Google Calendar event created: '{cal_event.get('summary')}'")
+                        if cal_event.get("meet_link"):
+                            log_activity(2, f"Google Meet conference: {cal_event.get('meet_link')}")
+
+                # -------------------------------------------------------------
+                # NODE: draft_email
+                # -------------------------------------------------------------
+                elif node_name == "draft_email":
+                    draft = node_output.get("email_draft")
+                    workflow["email_draft"] = draft
+
+                    # Complete Step 3 if still running
+                    if workflow["steps"][2]["status"] == "running":
+                        s3_dur = round(time.time() - (step3_start or time.time()), 1)
+                        workflow["steps"][2]["status"] = "completed"
+                        workflow["steps"][2]["duration"] = f"{s3_dur}s"
+                        workflow["steps"][2]["subtitle"] = f"Tool operations executed · {s3_dur}s"
+
+                    workflow["current_step_index"] = 3
+                    workflow["steps"][3]["status"] = "running"
+                    workflow["steps"][3]["subtitle"] = "Drafting personalized email..."
+                    step4_start = time.time()
+
+                    if draft:
+                        log_activity(3, f"Draft synthesized: '{draft.get('subject')}'")
+                        log_activity(3, f"Recipients: {', '.join(draft.get('to', []))}")
+                    log_activity(3, "Human-in-the-Loop review gate engaged (FR-14: Outbound verification required)")
+                    record_log(task_id, query, "Running", f"Drafted email '{draft.get('subject') if draft else ''}', awaiting review", "EmailContentAgent", "gemini-3.8-flash")
+
+                # -------------------------------------------------------------
+                # NODE: email_consent_hitl
+                # -------------------------------------------------------------
+                elif node_name == "email_consent_hitl":
+                    consent = node_output.get("email_consent", {})
+                    decision = consent.get("decision", "accepted")
+                    if node_output.get("email_draft"):
+                        workflow["email_draft"] = node_output.get("email_draft")
+
+                    if decision == "accepted":
+                        s4_dur = round(time.time() - (step4_start or time.time()), 1)
+                        workflow["steps"][3]["status"] = "completed"
+                        workflow["steps"][3]["duration"] = f"{s4_dur}s"
+                        workflow["steps"][3]["subtitle"] = f"Approved by supervisor · {s4_dur}s"
+                        log_activity(3, "Supervisor approval confirmed. Cryptographic clearance registered.")
+
+                        workflow["current_step_index"] = 4
+                        workflow["steps"][4]["status"] = "running"
+                        workflow["steps"][4]["subtitle"] = "Dispatching via Gmail API..."
+                        step5_start = time.time()
+                        record_log(task_id, query, "Running", "Supervisor approved email, transmitting via Gmail API", "HITL Supervisory Gateway", "gemini-3.8-flash")
+
+                    elif decision == "rejected":
+                        workflow["steps"][3]["status"] = "failed"
+                        workflow["steps"][3]["subtitle"] = "Rejected by supervisor"
+                        log_activity(3, "Supervisor rejected draft. Dispatch cleanly aborted with zero emails sent.")
+
+                # -------------------------------------------------------------
+                # NODE: revise_email
+                # -------------------------------------------------------------
+                elif node_name == "revise_email":
+                    if node_output.get("email_draft"):
+                        workflow["email_draft"] = node_output.get("email_draft")
+                    log_activity(3, "Draft revised according to supervisor edits. Re-prompting approval gate.")
+
+                # -------------------------------------------------------------
+                # NODE: abort_rejected
+                # -------------------------------------------------------------
+                elif node_name == "abort_rejected":
+                    workflow["status"] = "rejected"
+                    workflow["steps"][3]["status"] = "failed"
+                    workflow["steps"][3]["subtitle"] = "Rejected by supervisor"
+                    workflow["steps"][4]["status"] = "failed"
+                    workflow["steps"][4]["subtitle"] = "Dispatch aborted"
+                    elapsed = round(time.time() - start_time, 2)
+                    record_log(task_id, query, "Rejected", "Supervisor rejected outgoing email consent", "HITL Supervisory Gateway", "gemini-3.8-flash", elapsed)
+                    record_notification(f"Task {task_id} aborted: Supervisor rejected draft.", "failed")
+                    return
+
+                # -------------------------------------------------------------
+                # NODE: execute_gmail
+                # -------------------------------------------------------------
+                elif node_name == "execute_gmail":
+                    s5_dur = round(time.time() - (step5_start or time.time()), 1)
+                    workflow["steps"][4]["status"] = "completed"
+                    workflow["steps"][4]["duration"] = f"{s5_dur}s"
+                    workflow["steps"][4]["subtitle"] = f"Dispatched successfully · {s5_dur}s"
+                    log_activity(4, "Email successfully transmitted via Gmail API endpoint.")
+
+                    workflow["current_step_index"] = 5
+                    workflow["steps"][5]["status"] = "running"
+                    workflow["steps"][5]["subtitle"] = "Persisting audit telemetry..."
+                    step6_start = time.time()
+
+                # -------------------------------------------------------------
+                # NODE: summarize
+                # -------------------------------------------------------------
+                elif node_name == "summarize":
+                    final_resp = node_output.get("final_response")
+                    workflow["final_response"] = final_resp
+
+                    s6_dur = round(time.time() - (step6_start or time.time()), 1)
+                    workflow["steps"][5]["status"] = "completed"
+                    workflow["steps"][5]["duration"] = f"{s6_dur}s"
+                    workflow["steps"][5]["subtitle"] = f"Logged to MySQL axiomflow_db · {s6_dur}s"
+                    log_activity(5, "Appended execution telemetry to axiomflow_db.logs and axiomflow_db.notifications")
+
+                    total_elapsed = round(time.time() - start_time, 2)
+                    workflow["status"] = "completed"
+                    record_log(
+                        task_id=task_id,
+                        query=query,
+                        status="Completed",
+                        description=f"Completed automated workflow: {query[:120]}",
+                        agent_name="AxiomFlow Multi-Agent Pipeline",
+                        llm_name="gemini-3.8-flash",
+                        time_taken=total_elapsed
+                    )
+                    record_notification(
+                        message=f"Workflow {task_id} completed successfully in {total_elapsed}s",
+                        status="succeeded"
+                    )
+
+    except Exception as err:
+        elapsed = round(time.time() - start_time, 2)
+        print(f"[ERROR] Workflow execution exception: {err}")
+        curr_idx = workflow.get("current_step_index", 0)
+        log_activity(curr_idx, f"Encountered runtime error: {str(err)}")
+        if curr_idx < len(workflow["steps"]):
+            workflow["steps"][curr_idx]["status"] = "failed"
+            workflow["steps"][curr_idx]["subtitle"] = "Runtime failure"
+
+        workflow["status"] = "failed"
+        workflow["error"] = str(err)
+
+        record_log(
+            task_id=task_id,
+            query=query,
+            status="Failed",
+            description=f"Error: {str(err)[:120]}",
+            agent_name="SupervisorAgent",
+            llm_name="gemini-3.8-flash",
+            time_taken=elapsed
+        )
+        record_notification(
+            message=f"Workflow task {task_id} failed: {str(err)[:80]}",
+            status="failed"
+        )
+
+
+def start_new_workflow(
+    query: str,
+    user_id: str = "usr_72b30e7cd49e49e5",
+    business_id: int = 2,
+    account_email: str = "chillalyash2005@gmail.com",
+    auto_approve: bool = False
+) -> str:
+    """
+    Initializes a new real-time workflow run, records the initial running status
+    in axiomflow_db.logs, and launches background task execution.
+    NOTE: Notifications are NOT written here. Only upon completed or failed/rejected termination.
+    """
+    task_id = f"TSK_{uuid.uuid4().hex[:8].upper()}"
+    business_context = fetch_business_profile_and_user(user_id)
+
+    # Initial log in MySQL logs table (updates simultaneously in runtime)
+    record_log(
+        task_id=task_id,
+        query=query,
+        status="Running",
+        description="Workflow execution initialized",
+        agent_name="SupervisorAgent",
+        llm_name="gemini-3.8-flash",
+        time_taken=None
+    )
+
+    steps = create_initial_workflow_steps(query)
+
+    ACTIVE_WORKFLOWS[task_id] = {
+        "task_id": task_id,
+        "query": query,
+        "user_id": user_id,
+        "business_id": business_id,
+        "account_email": account_email,
+        "business_context": business_context,
+        "status": "running",
+        "is_paused": False,
+        "is_stopped": False,
+        "start_time": time.time(),
+        "steps": steps,
+        "current_step_index": 0,
+        "email_draft": None,
+        "calendar_event": None,
+        "sheet_result": None,
+        "auto_approve": auto_approve,
+        "final_response": None,
+        "error": None
+    }
+
+    STOP_SIGNALS[task_id] = False
+    APPROVAL_EVENTS[task_id] = threading.Event()
+
+    # Launch execution in a dedicated daemon thread with its own asyncio loop
+    t = threading.Thread(target=lambda: asyncio.run(run_workflow_coordinator(task_id)), daemon=True)
+    t.start()
+
+    return task_id
 
 
 def get_workflow_status(task_id: str) -> Optional[Dict[str, Any]]:
@@ -792,13 +801,15 @@ def get_workflow_status(task_id: str) -> Optional[Dict[str, Any]]:
 
     # Calculate progress percent
     completed_count = sum(1 for s in steps if s["status"] == "completed")
-    running_bonus = 0.5 if any(s["status"] == "running" or s["status"] == "waiting") else 0
+    running_bonus = 0.5 if any(s["status"] in ("running", "waiting") for s in steps) else 0
     progress_percent = min(100, int(((completed_count + running_bonus) / len(steps)) * 100))
 
     return {
         "task_id": workflow["task_id"],
         "query": workflow["query"],
         "status": workflow["status"],
+        "is_paused": workflow.get("is_paused", False),
+        "is_stopped": workflow.get("is_stopped", False),
         "elapsed_seconds": elapsed,
         "progress_percent": progress_percent,
         "current_step_index": workflow["current_step_index"],

@@ -9,7 +9,7 @@ backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
 
-import main
+from database import get_db_connection
 from google_credentials_manager import get_user_google_credentials
 
 
@@ -23,7 +23,7 @@ def get_authorized_service(
     Builds and returns an authorized Google API service instance for a specific user and email.
     Credentials are encrypted at rest and automatically refreshed using google_credentials_manager.
     """
-    conn = main.get_db_connection()
+    conn = get_db_connection()
     try:
         credentials: Credentials = get_user_google_credentials(
             user_id=user_id,

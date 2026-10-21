@@ -11,6 +11,21 @@ interface StepDetailProps {
     body?: string;
     meet_link?: string;
   };
+  calendarEvent?: {
+    event_id?: string;
+    summary?: string;
+    start_time?: string;
+    end_time?: string;
+    meet_link?: string;
+    attendees?: string[];
+  };
+  sheetResult?: {
+    spreadsheet_id?: string;
+    title?: string;
+    spreadsheet_url?: string;
+    row_count?: number;
+    headers?: string[];
+  };
   onApproveStep?: (stepId: string) => void;
   onRejectStep?: (stepId: string) => void;
   onRetryStep?: (stepId: string) => void;
@@ -20,6 +35,8 @@ interface StepDetailProps {
 export default function StepDetail({
   step,
   emailDraft,
+  calendarEvent,
+  sheetResult,
   onApproveStep,
   onRejectStep,
   onRetryStep,
@@ -97,7 +114,7 @@ export default function StepDetail({
           subject={emailDraft?.subject}
           to={emailDraft?.to}
           body={emailDraft?.body}
-          meetLink={emailDraft?.meet_link}
+          meetLink={emailDraft?.meet_link || calendarEvent?.meet_link}
           onApprove={() => onApproveStep?.(step.id)}
           onReject={() => onRejectStep?.(step.id)}
           onSaveEdits={(newBody) => onSaveEdits?.(step.id, newBody)}
@@ -114,8 +131,70 @@ export default function StepDetail({
 
       {step.status === "replanned" && <ReplanNotice />}
 
+      {/* Generated Artifacts Section */}
+      {(calendarEvent || sheetResult) && (step.number === 3 || step.number === 4 || step.number === 5) && (
+        <div className="my-3 p-4 border border-[#1A2F25]/10 bg-white/90 rounded-xl shadow-xs">
+          <div className="flex items-center justify-between mb-2 pb-1 border-b border-[#1A2F25]/10">
+            <span className="font-editorial text-base text-[#1A2F25]">Generated Artifacts</span>
+            <span className="text-[10px] font-mono uppercase bg-[#1A2F25]/5 text-[#526359] px-2 py-0.5 rounded">
+              VERIFIED_RESOURCE
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            {calendarEvent && (
+              <div className="border border-emerald-200 bg-emerald-50/60 rounded-lg p-3 text-xs font-mono">
+                <div className="flex items-center gap-1.5 text-emerald-900 font-semibold mb-1">
+                  <span>📅</span>
+                  <span className="truncate">{calendarEvent.summary || "Google Calendar Event"}</span>
+                </div>
+                <div className="text-[11px] text-[#526359] mb-1">
+                  <strong>ID:</strong> {calendarEvent.event_id?.slice(0, 16)}...
+                </div>
+                {calendarEvent.meet_link && (
+                  <div className="mt-2 pt-2 border-t border-emerald-200">
+                    <a
+                      href={calendarEvent.meet_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#E06D53] hover:bg-[#CD5B42] text-white rounded-full text-[11px] font-sans font-medium transition-colors cursor-pointer shadow-xs"
+                    >
+                      <span>Join Google Meet</span>
+                      <span className="text-[10px]">&rarr;</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+            {sheetResult && (
+              <div className="border border-blue-200 bg-blue-50/60 rounded-lg p-3 text-xs font-mono">
+                <div className="flex items-center gap-1.5 text-blue-900 font-semibold mb-1">
+                  <span>📊</span>
+                  <span className="truncate">{sheetResult.title || "Google Spreadsheet"}</span>
+                </div>
+                <div className="text-[11px] text-[#526359] mb-1">
+                  <strong>Rows:</strong> {sheetResult.row_count || 0} records inserted
+                </div>
+                {sheetResult.spreadsheet_url && (
+                  <div className="mt-2 pt-2 border-t border-blue-200">
+                    <a
+                      href={sheetResult.spreadsheet_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#1A2F25] hover:bg-[#2A4739] text-white rounded-full text-[11px] font-sans font-medium transition-colors cursor-pointer shadow-xs"
+                    >
+                      <span>Open Spreadsheet</span>
+                      <span className="text-[10px]">&rarr;</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Activity Section */}
-      <div className="mt-5 flex-1 overflow-y-auto">
+      <div className="mt-4 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between mb-3">
           <h4 className="font-editorial text-xl text-[#1A2F25]">Activity</h4>
           <span className="text-[11px] font-mono text-[#526359]">

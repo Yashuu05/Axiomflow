@@ -10,7 +10,9 @@ if backend_path not in sys.path:
 from agents.state import WorkflowState, EmailConsentDecision
 
 
-def email_consent_hitl_node(state: WorkflowState) -> Dict[str, Any]:
+import asyncio
+
+async def email_consent_hitl_node(state: WorkflowState) -> Dict[str, Any]:
     """
     Human-In-The-Loop Consent Node for Outgoing Email.
     Presents drafted email with sender identity, recipients, subject, body, and Meet link.
@@ -18,7 +20,7 @@ def email_consent_hitl_node(state: WorkflowState) -> Dict[str, Any]:
       [1] Accept -> Execute FastMCP Gmail Send
       [2] Reject -> Abort pipeline immediately
       [3] Update -> Accept user suggestions to re-draft
-    Supports interactive terminal prompt and programmatic test fixtures.
+    Supports interactive terminal prompt, web dashboard HITL, and programmatic test fixtures.
     """
     draft = state.get("email_draft") or {}
     business_context = state.get("business_context") or {}
@@ -39,6 +41,22 @@ def email_consent_hitl_node(state: WorkflowState) -> Dict[str, Any]:
     if pre_decision in ("accepted", "rejected", "updated"):
         decision = pre_decision
         user_feedback = state.get("email_consent", {}).get("user_feedback")
+    elif state.get("is_web_session") or (state.get("run_id") and state.get("run_id").startswith("TSK_")) or (state.get("task_id") and state.get("task_id").startswith("TSK_")):
+        task_id = state.get("task_id") or state.get("run_id")
+        import workflow_service
+        workflow_service.set_workflow_waiting_approval(task_id, draft)
+        approval_event = workflow_service.get_or_create_approval_event(task_id)
+        # Wait up to 300 seconds for supervisor approval from web UI via thread-safe event
+        is_set = await asyncio.to_thread(approval_event.wait, 300)
+        if not is_set:
+            decision = "rejected"
+            user_feedback = "Human supervisory approval timed out after 300 seconds."
+        else:
+            decision_data = workflow_service.get_approval_decision(task_id)
+            decision = decision_data.get("decision", "accepted")
+            user_feedback = decision_data.get("user_feedback")
+            if decision_data.get("edited_body") and draft:
+                draft["body"] = decision_data["edited_body"]
     else:
         # Render Interactive Terminal Card
         print("\n" + "=" * 80)
@@ -112,6 +130,7 @@ def email_consent_hitl_node(state: WorkflowState) -> Dict[str, Any]:
     ).model_dump()
 
     return {
+        "email_draft": draft,
         "email_consent": consent_data,
         "user_feedback": user_feedback,
         "status": next_status

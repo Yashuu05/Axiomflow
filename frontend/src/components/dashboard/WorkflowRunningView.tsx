@@ -24,6 +24,8 @@ export default function WorkflowRunningView({
   const [currentRunningStepIndex, setCurrentRunningStepIndex] = useState<number>(0);
   const [workflowStatus, setWorkflowStatus] = useState<string>("initializing");
   const [emailDraft, setEmailDraft] = useState<any>(null);
+  const [calendarEvent, setCalendarEvent] = useState<any>(null);
+  const [sheetResult, setSheetResult] = useState<any>(null);
   const [objective, setObjective] = useState<string>(initialObjective || "---");
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -38,6 +40,7 @@ export default function WorkflowRunningView({
         const data = await res.json();
         if (data.query) setObjective(data.query);
         if (data.status) setWorkflowStatus(data.status);
+        if (typeof data.is_paused === "boolean") setIsPaused(data.is_paused);
         if (data.steps && data.steps.length > 0) {
           setSteps(data.steps);
           // If selectedStepId not set or invalid, select running/waiting step
@@ -62,6 +65,12 @@ export default function WorkflowRunningView({
         }
         if (data.email_draft) {
           setEmailDraft(data.email_draft);
+        }
+        if (data.calendar_event) {
+          setCalendarEvent(data.calendar_event);
+        }
+        if (data.sheet_result) {
+          setSheetResult(data.sheet_result);
         }
 
         // Stop polling if reached terminal status
@@ -181,6 +190,38 @@ export default function WorkflowRunningView({
     pollStatus();
   };
 
+  const handleTogglePause = async () => {
+    if (!taskId) return;
+    try {
+      const endpoint = isPaused ? "resume" : "pause";
+      const res = await fetch(`${API_BASE}/api/workflow/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: taskId }),
+      });
+      if (res.ok) {
+        setIsPaused(!isPaused);
+        pollStatus();
+      }
+    } catch (err) {
+      console.error("Failed to toggle pause:", err);
+    }
+  };
+
+  const handleStopWorkflow = async () => {
+    if (!taskId) return;
+    try {
+      await fetch(`${API_BASE}/api/workflow/stop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: taskId }),
+      });
+      pollStatus();
+    } catch (err) {
+      console.error("Failed to stop workflow:", err);
+    }
+  };
+
   const isCompleted = workflowStatus === "completed";
   const isFailed = workflowStatus === "failed" || workflowStatus === "rejected";
   const isWaiting = workflowStatus === "waiting_approval";
@@ -246,19 +287,19 @@ export default function WorkflowRunningView({
             </span>
           </div>
 
-          {taskId && (
+          {taskId && !isCompleted && !isFailed && (
             <div className="flex items-center gap-2 ml-2">
               <button
                 type="button"
-                onClick={() => setIsPaused(!isPaused)}
+                onClick={handleTogglePause}
                 className="px-4 py-1 bg-[#CD5B42] hover:bg-[#E06D53] text-white font-sans text-xs font-medium rounded-full transition-all shadow-xs cursor-pointer"
               >
                 {isPaused ? "Resume" : "Pause"}
               </button>
               <button
                 type="button"
-                onClick={onResetWorkflow}
-                className="px-4 py-1 bg-[#CD5B42] hover:bg-[#E06D53] text-white font-sans text-xs font-medium rounded-full transition-all shadow-xs cursor-pointer"
+                onClick={handleStopWorkflow}
+                className="px-4 py-1 bg-[#1A2F25] hover:bg-[#2A4739] text-white font-sans text-xs font-medium rounded-full transition-all shadow-xs cursor-pointer"
               >
                 Stop
               </button>
@@ -323,6 +364,8 @@ export default function WorkflowRunningView({
             <StepDetail
               step={selectedStep}
               emailDraft={emailDraft}
+              calendarEvent={calendarEvent}
+              sheetResult={sheetResult}
               onApproveStep={handleApproveStep}
               onRejectStep={handleRejectStep}
               onRetryStep={handleRetryStep}

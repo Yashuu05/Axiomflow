@@ -143,6 +143,8 @@ class WorkflowState(TypedDict, total=False):
     """
     # Context & Tenant Identity
     run_id: str
+    task_id: Optional[str]
+    is_web_session: Optional[bool]
     tenant_id: str
     user_id: str
     business_id: int
