@@ -30,15 +30,14 @@ export default function NotificationsView({ onNavigateToWorkflow }: Notification
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/notifications?limit=100`);
-      if (res.ok) {
-        const data = await res.json();
-        setNotifications(data.notifications || []);
+      const res = await fetch(`${API_BASE}/api/notifications?limit=100`).catch(() => null);
+      if (res && res.ok) {
+        const data = await res.json().catch(() => null);
+        setNotifications(data?.notifications || []);
       } else {
         setNotifications([]);
       }
-    } catch (err) {
-      console.error("Failed to fetch notifications:", err);
+    } catch {
       setNotifications([]);
     } finally {
       setLoading(false);

@@ -35,18 +35,19 @@ def send_desktop_notification(title: str, message: str, app_name: str = "AxiomFl
     """
     try:
         from plyer import notification
-        # Limit message length for desktop balloon notification
-        clean_msg = message.strip()
+        # Sanitize for Windows charmap encodings (strip unencodable emojis)
+        safe_title = title.encode("ascii", "ignore").decode("ascii").strip() or "AxiomFlow Notification"
+        clean_msg = message.encode("ascii", "ignore").decode("ascii").strip()
         if len(clean_msg) > 200:
             clean_msg = clean_msg[:197] + "..."
             
         notification.notify(
-            title=title or "AxiomFlow Workflow Notification",
-            message=clean_msg,
+            title=safe_title,
+            message=clean_msg or "Workflow state updated",
             app_name=app_name,
             timeout=6
         )
-        print(f"[NOTIFIER] Desktop notification triggered via plyer: '{title}' - '{clean_msg}'")
+        print(f"[NOTIFIER] Desktop notification triggered via plyer: '{safe_title}' - '{clean_msg}'")
         return True
     except Exception as e:
         print(f"[WARNING] Desktop notification via plyer failed: {e}")

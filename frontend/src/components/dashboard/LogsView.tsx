@@ -22,6 +22,7 @@ export default function LogsView() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -32,12 +33,13 @@ export default function LogsView() {
       if (res.ok) {
         const data = await res.json();
         setLogs(data.logs || []);
+        setConnectionError(null);
       } else {
-        setLogs([]);
+        setConnectionError(`API server responded with HTTP ${res.status}`);
       }
     } catch (err) {
-      console.error("Failed to load logs from axiomflow_db:", err);
-      setLogs([]);
+      console.warn("Could not reach backend /api/logs:", err);
+      setConnectionError(`Cannot reach AxiomFlow Core API at ${API_BASE}. Please ensure the backend server is running.`);
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -248,9 +250,18 @@ export default function LogsView() {
                   colSpan={8}
                   className="py-12 text-center text-[#526359] font-editorial text-xl"
                 >
-                  {loading
-                    ? "Loading audit telemetry from axiomflow_db..."
-                    : "no data available (---)"}
+                  {loading ? (
+                    "Loading audit telemetry from axiomflow_db..."
+                  ) : connectionError ? (
+                    <div className="flex flex-col items-center justify-center gap-1.5 text-amber-700">
+                      <span className="font-semibold text-lg">{connectionError}</span>
+                      <span className="text-xs font-mono text-[#526359]">
+                        Start backend via: <code className="bg-[#1A2F25]/5 px-1.5 py-0.5 rounded text-[#E06D53]">uvicorn main:app --reload</code> (port 8000)
+                      </span>
+                    </div>
+                  ) : (
+                    "no data available (---)"
+                  )}
                 </td>
               </tr>
             )}

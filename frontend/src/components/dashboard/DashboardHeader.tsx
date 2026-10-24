@@ -43,15 +43,15 @@ export default function DashboardHeader({
   // Dedicated fetch function for notifications
   const loadNotifications = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/notifications?limit=50`);
-      if (res.ok) {
-        const data = await res.json();
+      const res = await fetch(`${API_BASE}/api/notifications?limit=50`).catch(() => null);
+      if (res && res.ok) {
+        const data = await res.json().catch(() => null);
         if (data && Array.isArray(data.notifications)) {
           setNotifications(data.notifications);
         }
       }
-    } catch (err) {
-      console.error("Error loading notifications from axiomflow_db:", err);
+    } catch {
+      // Silently ignore if backend is restarting or offline
     }
   }, [API_BASE]);
 
@@ -84,7 +84,9 @@ export default function DashboardHeader({
           });
         }
       })
-      .catch((err) => console.error("Error loading user profile:", err));
+      .catch(() => {
+        // Silently preserve cached localStorage profile if backend is offline
+      });
 
     // Initial notifications load
     loadNotifications();
@@ -93,6 +95,10 @@ export default function DashboardHeader({
     let eventSource: EventSource | null = null;
     try {
       eventSource = new EventSource(`${API_BASE}/api/notifications/events`);
+
+      eventSource.onerror = () => {
+        // Suppress browser console noise if backend is momentarily offline
+      };
 
       eventSource.addEventListener("notification", (e: MessageEvent) => {
         try {
@@ -115,8 +121,8 @@ export default function DashboardHeader({
           console.error("Failed to parse SSE payload in header:", err);
         }
       });
-    } catch (err) {
-      console.warn("SSE connection in header failed:", err);
+    } catch {
+      // EventSource instantiation fallback
     }
 
     // Fallback polling interval every 8 seconds

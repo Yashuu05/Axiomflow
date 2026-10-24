@@ -29,39 +29,48 @@ def route_after_understanding(state: WorkflowState) -> Literal["clarify_hitl", "
     return "plan"
 
 
-def route_after_plan(state: WorkflowState) -> Literal["execute_sheet", "execute_calendar", "draft_email"]:
-    """Routes to execute_sheet if the plan includes sheets capabilities; otherwise to execute_calendar or draft_email."""
+def route_after_plan(state: WorkflowState) -> Literal["execute_sheet", "execute_calendar", "draft_email", "summarize"]:
+    """Routes to execute_sheet if the plan includes sheets capabilities; otherwise to execute_calendar, draft_email, or summarize."""
     plan = state.get("plan") or {}
     steps = plan.get("steps", [])
     has_sheets = any("sheets" in s.get("capability", "") for s in steps)
     has_calendar = any("calendar" in s.get("capability", "") for s in steps)
+    has_email = any("gmail" in s.get("capability", "") or "email" in s.get("capability", "") or "content" in s.get("capability", "") for s in steps)
     if has_sheets:
         return "execute_sheet"
     elif has_calendar:
         return "execute_calendar"
-    return "draft_email"
+    elif has_email:
+        return "draft_email"
+    return "summarize"
 
 
-def route_after_sheet(state: WorkflowState) -> Literal["execute_calendar", "draft_email"]:
-    """If plan also includes calendar events and calendar hasn't run yet, route to execute_calendar; otherwise draft_email."""
+def route_after_sheet(state: WorkflowState) -> Literal["execute_calendar", "draft_email", "summarize"]:
+    """If plan also includes calendar events and calendar hasn't run yet, route to execute_calendar; otherwise draft_email or summarize."""
     plan = state.get("plan") or {}
     steps = plan.get("steps", [])
     has_calendar = any("calendar" in s.get("capability", "") for s in steps)
     calendar_event = state.get("calendar_event")
     if has_calendar and not calendar_event:
         return "execute_calendar"
-    return "draft_email"
+    has_email = any("gmail" in s.get("capability", "") or "email" in s.get("capability", "") or "content" in s.get("capability", "") for s in steps)
+    if has_email:
+        return "draft_email"
+    return "summarize"
 
 
-def route_after_calendar(state: WorkflowState) -> Literal["execute_sheet", "draft_email"]:
-    """If plan also includes sheet operations and sheet hasn't run yet, route to execute_sheet; otherwise draft_email."""
+def route_after_calendar(state: WorkflowState) -> Literal["execute_sheet", "draft_email", "summarize"]:
+    """If plan also includes sheet operations and sheet hasn't run yet, route to execute_sheet; otherwise draft_email or summarize."""
     plan = state.get("plan") or {}
     steps = plan.get("steps", [])
     has_sheets = any("sheets" in s.get("capability", "") for s in steps)
     sheet_result = state.get("sheet_result")
     if has_sheets and not sheet_result:
         return "execute_sheet"
-    return "draft_email"
+    has_email = any("gmail" in s.get("capability", "") or "email" in s.get("capability", "") or "content" in s.get("capability", "") for s in steps)
+    if has_email:
+        return "draft_email"
+    return "summarize"
 
 
 def route_after_email_consent(state: WorkflowState) -> Literal["execute_gmail", "abort_rejected", "revise_email"]:
@@ -121,14 +130,15 @@ def build_workflow_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
     )
     workflow.add_edge("clarify_hitl", "plan")
 
-    # Specialist Routing: Plan -> execute_sheet OR execute_calendar OR draft_email
+    # Specialist Routing: Plan -> execute_sheet OR execute_calendar OR draft_email OR summarize
     workflow.add_conditional_edges(
         "plan",
         route_after_plan,
         {
             "execute_sheet": "execute_sheet",
             "execute_calendar": "execute_calendar",
-            "draft_email": "draft_email"
+            "draft_email": "draft_email",
+            "summarize": "summarize"
         }
     )
     workflow.add_conditional_edges(
@@ -136,7 +146,8 @@ def build_workflow_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
         route_after_sheet,
         {
             "execute_calendar": "execute_calendar",
-            "draft_email": "draft_email"
+            "draft_email": "draft_email",
+            "summarize": "summarize"
         }
     )
     workflow.add_conditional_edges(
@@ -144,7 +155,8 @@ def build_workflow_graph(checkpointer: Optional[BaseCheckpointSaver] = None):
         route_after_calendar,
         {
             "execute_sheet": "execute_sheet",
-            "draft_email": "draft_email"
+            "draft_email": "draft_email",
+            "summarize": "summarize"
         }
     )
     workflow.add_edge("draft_email", "email_consent_hitl")

@@ -76,16 +76,29 @@ def interactive_clarification_node(state: WorkflowState) -> Dict[str, Any]:
         print(f"  [{idx}] {q}")
     print("-" * 80)
 
-    # Check if running in non-interactive environment (CI / background / test runner)
-    is_interactive = hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
+    # Check if running in web dashboard session or non-interactive environment
+    is_web = (
+        state.get("is_web_session", False)
+        or bool(state.get("task_id") and str(state.get("task_id")).startswith("TSK_"))
+        or bool(state.get("run_id") and str(state.get("run_id")).startswith("TSK_"))
+    )
+    is_interactive = hasattr(sys.stdin, "isatty") and sys.stdin.isatty() and not is_web
+
+    business_context = state.get("business_context") or {}
+    default_email = (
+        business_context.get("account_email")
+        or business_context.get("business_email")
+        or business_context.get("email")
+        or "chillalyash2005@gmail.com"
+    )
 
     gathered_answers: Dict[str, str] = {}
     if not is_interactive:
-        print("[NON-INTERACTIVE DETECTED] Applying automated fallback defaults for clarification...")
+        print(f"[{'WEB SESSION' if is_web else 'NON-INTERACTIVE'} DETECTED] Applying business context defaults for clarification...")
         for idx, q in enumerate(questions, 1):
-            if "email" in q.lower() or "recipient" in q.lower():
-                gathered_answers[f"question_{idx}"] = "yashvary13@gmail.com"
-            elif "duration" in q.lower() or "long" in q.lower():
+            if "email" in q.lower() or "recipient" in q.lower() or "attendee" in q.lower():
+                gathered_answers[f"question_{idx}"] = default_email
+            elif "duration" in q.lower() or "long" in q.lower() or "time" in q.lower():
                 gathered_answers[f"question_{idx}"] = "60 minutes"
             elif "meet" in q.lower() or "link" in q.lower() or "url" in q.lower():
                 gathered_answers[f"question_{idx}"] = "Auto-generate Google Meet link"
@@ -96,11 +109,11 @@ def interactive_clarification_node(state: WorkflowState) -> Dict[str, Any]:
             try:
                 ans = input(f"Answer for Question [{idx}]: ").strip()
             except (EOFError, KeyboardInterrupt):
-                ans = "yashvary13@gmail.com, 1 hour, auto-generate Google Meet link"
+                ans = f"{default_email}, 1 hour, auto-generate Google Meet link"
             gathered_answers[f"question_{idx}"] = ans or "Standard defaults"
 
     print("=" * 80)
-    print("[SUCCESS] All clarification answers recorded. Resuming planning...")
+    print(f"[SUCCESS] Clarification answers recorded ({'Automated Web Defaults' if is_web else 'Operator Input'}). Resuming planning...")
     print("=" * 80 + "\n")
 
     return {

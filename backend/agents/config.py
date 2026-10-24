@@ -15,11 +15,11 @@ class AgentSettings(BaseSettings):
 
     # Default LLM Provider Settings
     DEFAULT_LLM_PROVIDER: Literal["gemini", "groq", "ollama"] = Field(
-        default="gemini",
+        default="groq",
         description="Default model provider to use if not overridden per agent/task"
     )
     DEFAULT_MODEL_NAME: str = Field(
-        default="gemini-3.8-flash",
+        default="openai/gpt-oss-120b",
         description="Default model identifier"
     )
     DEFAULT_TEMPERATURE: float = Field(

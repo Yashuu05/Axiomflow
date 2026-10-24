@@ -20,6 +20,11 @@ CRITICAL RULES FOR SUFFICIENCY EVALUATION:
      a) Recipient email address(es) MUST be provided (e.g., 'yashvary13@gmail.com'). If missing, mark as missing ('receiver_email').
      b) Sheet title / name (e.g., 'sales') should be in the request.
      c) If recipient email and sheet name are provided, the request is 100% SUFFICIENT. Set is_sufficient = True and questions = [].
+    - For Calendar Only (scheduling meetings on calendar without sending email, e.g. 'on calendar only'):
+      a) Recipient / attendee email address is NOT required. A user can create/block an event on their own primary calendar with zero external attendees.
+      b) Meeting title / topic (e.g., 'Q2 Revenue discussion').
+      c) Meeting date and time: e.g. 4th November 2026 at 10:00am to 12:00 p.m.
+      d) If meeting title and date/time window are present, the request is 100% SUFFICIENT! NEVER mark receiver_email or attendee email as missing for calendar-only tasks. Set is_sufficient = True, missing_fields = [], questions = [].
     - For Calendar + Email (scheduling meetings):
       a) Recipient / attendee email address: If any recipient email is provided in the request (e.g. yashvary13@gmail.com or yashvary@gmail.com), recipient requirement is satisfied. Named roles like CEO/CFO/finance team do NOT require separate individual emails.
       b) Meeting date and time: e.g. 24th October 2026 at 3:00 p.m to 4:00 p.m. If start and end times are given, duration is already known (e.g. 1 hour). Do NOT ask for duration!

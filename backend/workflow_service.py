@@ -50,7 +50,7 @@ def record_log(
     status: str,
     description: str,
     agent_name: str,
-    llm_name: str = "gemini-3.8-flash",
+    llm_name: str = "openai/gpt-oss-120b (groq)",
     time_taken: Optional[float] = None
 ) -> Optional[int]:
     """
@@ -439,7 +439,7 @@ async def run_workflow_coordinator(task_id: str):
             if STOP_SIGNALS.get(task_id) or workflow.get("is_stopped"):
                 log_activity(workflow.get("current_step_index", 0), "Workflow interrupted by supervisor.")
                 elapsed = round(time.time() - start_time, 2)
-                record_log(task_id, query, "Failed", "Interrupted by user", "SupervisorAgent", "gemini-3.8-flash", elapsed)
+                record_log(task_id, query, "Failed", "Interrupted by user", "SupervisorAgent", "openai/gpt-oss-120b (groq)", elapsed)
                 record_notification(f"Workflow {task_id} interrupted by user.", "failed")
                 return
 
@@ -473,7 +473,7 @@ async def run_workflow_coordinator(task_id: str):
                         workflow["error"] = refusal
                         workflow["final_response"] = refusal
                         elapsed = round(time.time() - start_time, 2)
-                        record_log(task_id, query, "Failed", f"Step 1: Guardrail Refusal: {refusal[:100]}", "PolicyEthicsGuardrail", "gemini-3.8-flash", elapsed)
+                        record_log(task_id, query, "Failed", f"Step 1: Guardrail Refusal: {refusal[:100]}", "PolicyEthicsGuardrail", "openai/gpt-oss-120b (groq)", elapsed)
                         record_notification(f"Task {task_id} rejected by guardrail: {refusal[:80]}", "failed", task_id=task_id)
                         return
 
@@ -487,7 +487,7 @@ async def run_workflow_coordinator(task_id: str):
                     workflow["steps"][1]["status"] = "running"
                     workflow["steps"][1]["subtitle"] = "Synthesizing execution plan..."
                     step2_start = time.time()
-                    record_log(task_id, query, "Completed", "Step 1: Intent evaluated & guardrails verified (Status: ALLOWED)", "PolicyEthicsGuardrail", "gemini-3.8-flash", s1_dur)
+                    record_log(task_id, query, "Completed", "Step 1: Intent evaluated & guardrails verified (Status: ALLOWED)", "PolicyEthicsGuardrail", "openai/gpt-oss-120b (groq)", s1_dur)
 
                 # -------------------------------------------------------------
                 # NODE: clarify_hitl
@@ -521,7 +521,7 @@ async def run_workflow_coordinator(task_id: str):
                         status="Completed",
                         description=f"Step 2: Synthesized verified DAG plan ({steps_count} stages: {services})",
                         agent_name="SupervisorAgent",
-                        llm_name="gemini-3.8-flash",
+                        llm_name="openai/gpt-oss-120b (groq)",
                         time_taken=s2_dur
                     )
 
@@ -536,13 +536,16 @@ async def run_workflow_coordinator(task_id: str):
                         log_activity(2, f"Google Sheet created: '{sheet_result.get('title')}' ({sheet_result.get('row_count')} rows)")
                         if sheet_result.get("spreadsheet_url"):
                             log_activity(2, f"Spreadsheet URL: {sheet_result.get('spreadsheet_url')}")
+                        workflow["steps"][2]["status"] = "completed"
+                        workflow["steps"][2]["duration"] = f"{s_dur}s"
+                        workflow["steps"][2]["subtitle"] = f"Sheet created · {s_dur}s"
                         record_log(
                             task_id=task_id,
                             query=query,
                             status="Completed",
                             description=f"Step 3: Google Sheet '{sheet_result.get('title')}' created with {sheet_result.get('row_count')} records",
                             agent_name="SheetAgent",
-                            llm_name="gemini-3.8-flash",
+                            llm_name="openai/gpt-oss-120b (groq)",
                             time_taken=s_dur
                         )
 
@@ -557,13 +560,16 @@ async def run_workflow_coordinator(task_id: str):
                         log_activity(2, f"Google Calendar event created: '{cal_event.get('summary')}'")
                         if cal_event.get("meet_link"):
                             log_activity(2, f"Google Meet conference: {cal_event.get('meet_link')}")
+                        workflow["steps"][2]["status"] = "completed"
+                        workflow["steps"][2]["duration"] = f"{c_dur}s"
+                        workflow["steps"][2]["subtitle"] = f"Event booked · {c_dur}s"
                         record_log(
                             task_id=task_id,
                             query=query,
                             status="Completed",
                             description=f"Step 3: Booked Google Calendar event '{cal_event.get('summary')}' with video meet link",
                             agent_name="CalendarAgent",
-                            llm_name="gemini-3.8-flash",
+                            llm_name="openai/gpt-oss-120b (groq)",
                             time_taken=c_dur
                         )
 
@@ -596,7 +602,7 @@ async def run_workflow_coordinator(task_id: str):
                         status="Waiting Approval",
                         description=f"Step 4: Drafted email '{draft.get('subject') if draft else ''}', awaiting supervisory sign-off",
                         agent_name="EmailContentAgent",
-                        llm_name="gemini-3.8-flash",
+                        llm_name="openai/gpt-oss-120b (groq)",
                         time_taken=round(time.time() - step4_start, 1)
                     )
 
@@ -626,7 +632,7 @@ async def run_workflow_coordinator(task_id: str):
                             status="Approved",
                             description="Step 4: Supervisor approved outbound email draft, authorizing Gmail API transmission",
                             agent_name="HITL Supervisory Gateway",
-                            llm_name="gemini-3.8-flash",
+                            llm_name="openai/gpt-oss-120b (groq)",
                             time_taken=s4_dur
                         )
 
@@ -659,7 +665,7 @@ async def run_workflow_coordinator(task_id: str):
                         status="Rejected",
                         description="Step 4: Dispatch aborted - Supervisor rejected outbound email consent",
                         agent_name="HITL Supervisory Gateway",
-                        llm_name="gemini-3.8-flash",
+                        llm_name="openai/gpt-oss-120b (groq)",
                         time_taken=elapsed
                     )
                     record_notification(f"Task {task_id} aborted: Supervisor rejected draft.", "rejected", task_id=task_id)
@@ -680,7 +686,7 @@ async def run_workflow_coordinator(task_id: str):
                         status="Completed",
                         description="Step 5: Outbound email dispatched successfully via Gmail API",
                         agent_name="Gmail Specialist",
-                        llm_name="gemini-3.8-flash",
+                        llm_name="openai/gpt-oss-120b (groq)",
                         time_taken=s5_dur
                     )
 
@@ -696,6 +702,31 @@ async def run_workflow_coordinator(task_id: str):
                     final_resp = node_output.get("final_response")
                     workflow["final_response"] = final_resp
 
+                    # Complete Step 3 if still running
+                    if workflow["steps"][2]["status"] in ("running", "pending"):
+                        s3_dur = round(time.time() - (step3_start or time.time()), 1)
+                        workflow["steps"][2]["status"] = "completed"
+                        workflow["steps"][2]["duration"] = f"{s3_dur}s"
+                        workflow["steps"][2]["subtitle"] = f"Tool operations executed · {s3_dur}s"
+
+                    # If Step 4 was pending (non-email workflow), mark skipped/completed
+                    if workflow["steps"][3]["status"] == "pending":
+                        workflow["steps"][3]["status"] = "completed"
+                        workflow["steps"][3]["duration"] = "0.0s"
+                        workflow["steps"][3]["subtitle"] = "Skipped · Non-email objective"
+                        log_activity(3, "Email drafting not required for this workflow objective.")
+
+                    # If Step 5 was pending (non-email workflow), mark skipped/completed
+                    if workflow["steps"][4]["status"] == "pending":
+                        workflow["steps"][4]["status"] = "completed"
+                        workflow["steps"][4]["duration"] = "0.0s"
+                        workflow["steps"][4]["subtitle"] = "Skipped · Non-email objective"
+                        log_activity(4, "Email dispatch not required for this workflow objective.")
+
+                    workflow["current_step_index"] = 5
+                    workflow["steps"][5]["status"] = "running"
+                    workflow["steps"][5]["subtitle"] = "Persisting audit telemetry..."
+
                     s6_dur = round(time.time() - (step6_start or time.time()), 1)
                     workflow["steps"][5]["status"] = "completed"
                     workflow["steps"][5]["duration"] = f"{s6_dur}s"
@@ -710,7 +741,7 @@ async def run_workflow_coordinator(task_id: str):
                         status="Completed",
                         description=f"Step 6: Workflow task completed successfully in {total_elapsed}s",
                         agent_name="AxiomFlow Multi-Agent Pipeline",
-                        llm_name="gemini-3.8-flash",
+                        llm_name="openai/gpt-oss-120b (groq)",
                         time_taken=total_elapsed
                     )
                     record_notification(
@@ -737,7 +768,7 @@ async def run_workflow_coordinator(task_id: str):
             status="Failed",
             description=f"Error: {str(err)[:120]}",
             agent_name="SupervisorAgent",
-            llm_name="gemini-3.8-flash",
+            llm_name="openai/gpt-oss-120b (groq)",
             time_taken=elapsed
         )
         record_notification(
@@ -769,7 +800,7 @@ def start_new_workflow(
         status="Running",
         description="Workflow execution initialized",
         agent_name="SupervisorAgent",
-        llm_name="gemini-3.8-flash",
+        llm_name="openai/gpt-oss-120b (groq)",
         time_taken=None
     )
 

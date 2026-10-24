@@ -68,7 +68,7 @@ def get_chat_model(
 
     elif selected_provider == "groq":
         from langchain_groq import ChatGroq
-        target_model = model_name or "openai/gpt-oss-20b"
+        target_model = model_name or settings.DEFAULT_MODEL_NAME or "openai/gpt-oss-120b"
         api_key = kwargs.get("api_key") or os.getenv("GROQ_API_KEY") or settings.GROQ_API_KEY
         return ChatGroq(
             model_name=target_model,
@@ -204,8 +204,8 @@ class FallbackStructuredOutputWrapper:
 class ResilientChatModel:
     """
     Production-ready Multi-Layer Fallback Chat Model.
-    Layer 1: Google Gemini 3.8 Flash (via langchain-google-genai)
-    Layer 2: Qwen 3.8 27B / OpenAI GPT-OSS (via langchain-groq)
+    Layer 1: OpenAI GPT-OSS 120B (via langchain-groq)
+    Layer 2: Google Gemini 3.8 Flash (via langchain-google-genai)
     Layer 3: Qwen 3:8B (via langchain-ollama)
     
     Catches rate limits, resource exhaustion, quota errors, and API timeouts.
@@ -218,8 +218,8 @@ class ResilientChatModel:
     ):
         self.temperature = temperature
         self.layer_configs = custom_layers or [
-            ("gemini", "gemini-3.8-flash"),
             ("groq", "openai/gpt-oss-120b"),
+            ("gemini", "gemini-3.8-flash"),
             ("groq", "qwen/qwen3.8-27b"),
             ("groq", "openai/gpt-oss-20b"),
             ("ollama", "qwen3:8b")
