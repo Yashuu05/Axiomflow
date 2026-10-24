@@ -105,6 +105,30 @@ class LoginResponse(BaseModel):
     role: str
     business_id: Optional[int]
     business_name: Optional[str]
+class BusinessProfileUpdate(BaseModel):
+    business_name: Optional[str] = None
+    sector: Optional[str] = None
+    gstin: Optional[str] = None
+    cin: Optional[str] = None
+    phone_no: Optional[str] = None
+    email: Optional[str] = None
+    website_url: Optional[str] = None
+    address: Optional[str] = None
+    description: Optional[str] = None
+
+class AdminProfileUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    department: Optional[str] = None
+    profession: Optional[str] = None
+    mobile_no: Optional[str] = None
+
+class FullProfileUpdateRequest(BaseModel):
+    user_id: str
+    business_id: Optional[int] = None
+    business: Optional[BusinessProfileUpdate] = None
+    admin: Optional[AdminProfileUpdate] = None
 
 # --- API Endpoints ---
 
@@ -414,6 +438,39 @@ def get_user_profile_endpoint(user_id: str):
     """Retrieves business context and user profile directly from axiomflow_db."""
     profile = workflow_service.fetch_business_profile_and_user(user_id)
     return profile
+
+@app.get("/api/profile/full/{user_id}")
+def get_full_profile_endpoint(user_id: str):
+    """Retrieves all fields from business_profile and users tables for administration."""
+    details = workflow_service.fetch_full_profile_details(user_id)
+    if "error" in details and not details.get("admin") and not details.get("business"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch profile details: {details['error']}"
+        )
+    return details
+
+@app.put("/api/profile/update")
+def update_profile_endpoint(payload: FullProfileUpdateRequest):
+    """
+    Updates administrative details in 'users' and/or business details in 'business_profile'.
+    Returns success message or error message if update fails.
+    """
+    try:
+        biz_dict = payload.business.dict(exclude_unset=True) if payload.business else None
+        admin_dict = payload.admin.dict(exclude_unset=True) if payload.admin else None
+        res = workflow_service.update_profile_details(
+            user_id=payload.user_id,
+            business_id=payload.business_id,
+            business_data=biz_dict,
+            admin_data=admin_dict
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Database update failed: {str(e)}"
+        )
 
 @app.post("/api/workflow/run")
 async def run_workflow_endpoint(payload: WorkflowRunPayload):

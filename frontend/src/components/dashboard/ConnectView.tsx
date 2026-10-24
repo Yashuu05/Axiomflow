@@ -9,7 +9,7 @@ declare global {
 }
 
 interface ConnectViewProps {
-  onBackToWorkflow: () => void;
+  onBackToWorkflow?: () => void;
   userId?: string;
   businessId?: number;
 }
@@ -275,16 +275,6 @@ export default function ConnectView({
         <p className="font-sans text-xs text-[#526359] max-w-md mx-auto">
           No additional external database or file connections available (---). When relational databases or spreadsheet sources are integrated into your organization profile, real-time connection status will be displayed here.
         </p>
-      </div>
-
-      <div className="text-center pt-4">
-        <button
-          type="button"
-          onClick={onBackToWorkflow}
-          className="px-6 py-2.5 bg-[#E06D53] hover:bg-[#CD5B42] text-white font-sans text-xs uppercase tracking-wider font-semibold rounded-full transition-all shadow-sm cursor-pointer"
-        >
-          &larr; Return to Active Workflow
-        </button>
       </div>
     </div>
   );

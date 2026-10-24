@@ -165,9 +165,9 @@ def fetch_business_profile_and_user(user_id: str) -> Dict[str, Any]:
                 """
                 SELECT 
                     u.user_id, u.first_name, u.last_name, u.email as user_email,
-                    u.role, u.department, u.profession, u.business_id,
-                    b.business_name, b.sector, b.gstin, b.cin, b.email as business_email,
-                    b.website_url, b.description
+                    u.role, u.department, u.profession, u.mobile_no, u.business_id,
+                    b.business_name, b.sector, b.gstin, b.cin, b.phone_no, b.email as business_email,
+                    b.website_url, b.address, b.description
                 FROM `users` u
                 LEFT JOIN `business_profile` b ON u.business_id = b.id
                 WHERE u.user_id = %s
@@ -185,11 +185,14 @@ def fetch_business_profile_and_user(user_id: str) -> Dict[str, Any]:
                     "role": row.get("role") or "admin",
                     "department": row.get("department") or "---",
                     "profession": row.get("profession") or "---",
+                    "mobile_no": row.get("mobile_no") or "---",
                     "business_id": row.get("business_id"),
                     "business_name": row.get("business_name") or "---",
                     "sector": row.get("sector") or "---",
                     "business_email": row.get("business_email") or row.get("user_email") or "---",
                     "website_url": row.get("website_url") or "---",
+                    "phone_no": row.get("phone_no") or "---",
+                    "address": row.get("address") or "---",
                     "description": row.get("description") or "---"
                 }
     except Exception as e:
@@ -206,13 +209,150 @@ def fetch_business_profile_and_user(user_id: str) -> Dict[str, Any]:
         "role": "admin",
         "department": "IT",
         "profession": "Administrator",
+        "mobile_no": "+917775065511",
         "business_id": 2,
         "business_name": "Axiomflow Pvt Ltd",
         "sector": "IT & Software Services",
         "business_email": "chillalyash2005@gmail.com",
         "website_url": "https://www.axiomflow.ai",
+        "phone_no": "+919850665111",
+        "address": "SR. NO 40/1 lane no. 3, Dattanagar Ambegaon B.K Pune 411046",
         "description": "B2B SaaS Operation Automation Workflow platform"
     }
+
+
+def fetch_full_profile_details(user_id: str) -> Dict[str, Any]:
+    """Retrieves all fields from business_profile and users tables for administration."""
+    conn = None
+    try:
+        conn = get_db_conn()
+        with conn.cursor() as cur:
+            # 1. Fetch user admin details
+            cur.execute(
+                """
+                SELECT 
+                    `user_id`, `first_name`, `last_name`, `email`, 
+                    `department`, `profession`, `mobile_no`, `role`, 
+                    `business_id`, `created_at`, `updated_at`
+                FROM `users`
+                WHERE `user_id` = %s
+                LIMIT 1;
+                """,
+                (user_id,)
+            )
+            admin_row = cur.fetchone()
+
+            business_id = admin_row.get("business_id") if admin_row else None
+
+            # 2. Fetch business profile details
+            biz_row = None
+            if business_id:
+                cur.execute(
+                    """
+                    SELECT 
+                        `id`, `business_name`, `sector`, `gstin`, `cin`, 
+                        `phone_no`, `email`, `website_url`, `description`, 
+                        `address`, `created_at`, `updated_at`
+                    FROM `business_profile`
+                    WHERE `id` = %s
+                    LIMIT 1;
+                    """,
+                    (business_id,)
+                )
+                biz_row = cur.fetchone()
+
+            # Format datetimes
+            if admin_row:
+                if admin_row.get("created_at"):
+                    admin_row["created_at"] = str(admin_row["created_at"])
+                if admin_row.get("updated_at"):
+                    admin_row["updated_at"] = str(admin_row["updated_at"])
+            if biz_row:
+                if biz_row.get("created_at"):
+                    biz_row["created_at"] = str(biz_row["created_at"])
+                if biz_row.get("updated_at"):
+                    biz_row["updated_at"] = str(biz_row["updated_at"])
+
+            return {
+                "admin": admin_row or {},
+                "business": biz_row or {}
+            }
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch full profile details: {e}")
+        return {"admin": {}, "business": {}, "error": str(e)}
+    finally:
+        if conn:
+            conn.close()
+
+
+def update_profile_details(
+    user_id: str,
+    business_id: Optional[int] = None,
+    business_data: Optional[Dict[str, Any]] = None,
+    admin_data: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Updates respective fields in business_profile and/or users tables in axiomflow_db.
+    Executes within an atomic database transaction.
+    """
+    conn = None
+    try:
+        conn = get_db_conn()
+        with conn.cursor() as cur:
+            # If business_id is not passed, resolve from user record
+            if not business_id and user_id:
+                cur.execute("SELECT `business_id` FROM `users` WHERE `user_id` = %s LIMIT 1;", (user_id,))
+                urow = cur.fetchone()
+                if urow and urow.get("business_id"):
+                    business_id = urow["business_id"]
+
+            # 1. Update business_profile if provided
+            if business_data and business_id:
+                allowed_biz_fields = [
+                    "business_name", "sector", "gstin", "cin", 
+                    "phone_no", "email", "website_url", "description", "address"
+                ]
+                updates = []
+                values = []
+                for field in allowed_biz_fields:
+                    if field in business_data and business_data[field] is not None:
+                        updates.append(f"`{field}` = %s")
+                        val = business_data[field]
+                        values.append(val.strip() if isinstance(val, str) else val)
+
+                if updates:
+                    values.append(business_id)
+                    biz_sql = f"UPDATE `business_profile` SET {', '.join(updates)}, `updated_at` = CURRENT_TIMESTAMP WHERE `id` = %s;"
+                    cur.execute(biz_sql, tuple(values))
+
+            # 2. Update users if admin_data provided
+            if admin_data and user_id:
+                allowed_user_fields = [
+                    "first_name", "last_name", "email", 
+                    "department", "profession", "mobile_no"
+                ]
+                updates = []
+                values = []
+                for field in allowed_user_fields:
+                    if field in admin_data and admin_data[field] is not None:
+                        updates.append(f"`{field}` = %s")
+                        val = admin_data[field]
+                        values.append(val.strip() if isinstance(val, str) else val)
+
+                if updates:
+                    values.append(user_id)
+                    user_sql = f"UPDATE `users` SET {', '.join(updates)}, `updated_at` = CURRENT_TIMESTAMP WHERE `user_id` = %s;"
+                    cur.execute(user_sql, tuple(values))
+
+            conn.commit()
+            return {"success": True, "message": "Successfully Updated Profile"}
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise e
+    finally:
+        if conn:
+            conn.close()
 
 
 def create_initial_workflow_steps(query: str) -> List[Dict[str, Any]]:

@@ -7,6 +7,7 @@ import WorkflowView from "@/components/dashboard/WorkflowView";
 import LogsView from "@/components/dashboard/LogsView";
 import ConnectView from "@/components/dashboard/ConnectView";
 import NotificationsView from "@/components/dashboard/NotificationsView";
+import ProfileView from "@/components/dashboard/ProfileView";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -41,6 +42,9 @@ export default function DashboardPage() {
           {activeTab === "logs" && <LogsView />}
           {activeTab === "notifications" && (
             <NotificationsView onNavigateToWorkflow={() => setActiveTab("workflow")} />
+          )}
+          {activeTab === "profile" && (
+            <ProfileView onBackToWorkflow={() => setActiveTab("workflow")} />
           )}
         </div>
       </main>
