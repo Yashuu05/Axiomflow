@@ -30,6 +30,16 @@ from tools.sheet_tools import (
     sheets_clear_values
 )
 
+from tools.docs_tools import (
+    docs_mcp,
+    docs_create_document,
+    docs_read_document,
+    docs_write_document,
+    docs_replace_text,
+    docs_delete_content_range,
+    docs_delete_document
+)
+
 __all__ = [
     # Gmail
     "gmail_mcp",
@@ -54,5 +64,14 @@ __all__ = [
     "sheets_append_values",
     "sheets_update_values",
     "sheets_batch_update",
-    "sheets_clear_values"
+    "sheets_clear_values",
+
+    # Docs
+    "docs_mcp",
+    "docs_create_document",
+    "docs_read_document",
+    "docs_write_document",
+    "docs_replace_text",
+    "docs_delete_content_range",
+    "docs_delete_document"
 ]

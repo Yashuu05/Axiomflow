@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import re
 from typing import Dict, Any, Generator, Optional, List
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -179,21 +180,56 @@ class SupervisorAgent:
         step_idx = 1
         prev_id = None
 
+        # 1. Sheets Step
         if "sheets" in services or "sheet" in req_lower:
             step_id = f"step_{step_idx}"
-            cap = "sheets.read" if "read" in req_lower or "insight" in req_lower or "analyse" in req_lower else "sheets.create"
+            cap = "sheets.read" if ("read" in req_lower or "insight" in req_lower or "analyse" in req_lower or "analyze" in req_lower) else "sheets.create"
+            sheet_params: Dict[str, Any] = {"title": "retail_sales" if "retail" in req_lower else "sales"}
+            sheet_match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", request)
+            if sheet_match:
+                sheet_params["spreadsheet_id"] = sheet_match.group(1)
+
             plan.steps.append(StepProposal(
                 id=step_id,
                 capability=cap,
-                description="Read/Create and analyze target Google Spreadsheet",
-                parameters={"title": "retail_sales" if "retail" in req_lower else "sales"},
+                description="Read/Analyze target Google Spreadsheet data and extract business insights",
+                parameters=sheet_params,
                 risk="external_side_effect" if cap == "sheets.create" else "read_only",
                 requires_approval=cap == "sheets.create"
             ))
+            if "sheets" not in plan.identified_services:
+                plan.identified_services.append("sheets")
             prev_id = step_id
             step_idx += 1
 
-        if "calendar" in services or "meet" in req_lower or "schedule" in req_lower:
+        # 2. Docs Step
+        if "docs" in services or "doc" in req_lower or "document" in req_lower or ".docx" in req_lower:
+            step_id = f"step_{step_idx}"
+            title_match = re.search(r'(?:called|named|document|doc)\s*["\']?([^"\'\s]+\.(?:docx|doc|txt))["\']?', request, re.I)
+            if not title_match:
+                title_match = re.search(r'["\']([^"\']+\.(?:docx|doc|txt))["\']', request)
+            doc_title = title_match.group(1).strip() if title_match else "sales_insights.docx"
+
+            plan.steps.append(StepProposal(
+                id=step_id,
+                capability="docs.create",
+                description=f"Create Google Document '{doc_title}' and write compiled insights",
+                parameters={"title": doc_title},
+                depends_on=[prev_id] if prev_id else [],
+                risk="external_side_effect",
+                requires_approval=True
+            ))
+            if "docs" not in plan.identified_services:
+                plan.identified_services.append("docs")
+            prev_id = step_id
+            step_idx += 1
+
+        # 3. Calendar Step (Respecting negative constraints like 'Do not use Calendar')
+        has_cal_negation = any(neg in req_lower for neg in [
+            "do not use calendar", "don't use calendar", "no calendar",
+            "not use calendar", "do not calendar", "without calendar"
+        ])
+        if not has_cal_negation and ("calendar" in services or "meet" in req_lower or "schedule" in req_lower):
             step_id = f"step_{step_idx}"
             plan.steps.append(StepProposal(
                 id=step_id,
@@ -204,16 +240,22 @@ class SupervisorAgent:
                 risk="external_side_effect",
                 requires_approval=True
             ))
+            if "calendar" not in plan.identified_services:
+                plan.identified_services.append("calendar")
             prev_id = step_id
             step_idx += 1
 
+        # 4. Email Steps
         if "gmail" in services or "email" in req_lower or "mail" in req_lower:
+            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', request)
+            recipient = [email_match.group(0)] if email_match else []
+
             draft_id = f"step_{step_idx}"
             plan.steps.append(StepProposal(
                 id=draft_id,
                 capability="content.draft_email",
-                description="Draft executive email with insights, meeting details, and attachment",
-                parameters={},
+                description="Draft executive email with insights and attached documentation",
+                parameters={"to": recipient},
                 depends_on=[prev_id] if prev_id else [],
                 risk="no_external_side_effect",
                 requires_approval=False
@@ -223,11 +265,13 @@ class SupervisorAgent:
                 id=f"step_{step_idx}",
                 capability="gmail.send",
                 description="Dispatch email to recipient via Gmail API",
-                parameters={},
+                parameters={"to": recipient},
                 depends_on=[draft_id],
                 risk="external_side_effect",
                 requires_approval=True
             ))
+            if "gmail" not in plan.identified_services:
+                plan.identified_services.append("gmail")
 
     def _validate_and_sanitize_plan(self, plan: SupervisorPlan) -> None:
         """
@@ -241,7 +285,11 @@ class SupervisorAgent:
                     f"Security violation: Planner proposed unauthorized capability '{step.capability}'. "
                     f"This capability is not in the server registry."
                 )
-            if step.capability in ("gmail.send", "calendar.create_event", "sheets.create", "sheets.append", "sheets.update"):
+            if step.capability in (
+                "gmail.send", "calendar.create_event",
+                "sheets.create", "sheets.append", "sheets.update",
+                "docs.create", "docs.write", "docs.append", "docs.replace_text", "docs.delete"
+            ):
                 step.requires_approval = True
                 step.risk = "external_side_effect"
 

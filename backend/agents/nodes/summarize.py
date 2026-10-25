@@ -65,6 +65,18 @@ def summarize_node(state: WorkflowState) -> Dict[str, Any]:
                 if insight_line.strip():
                     lines.append(f"    {insight_line.strip()}")
 
+    docs_result = state.get("docs_result")
+    if docs_result:
+        lines.append("\nGoogle Document Created & Processed:")
+        lines.append(f"  - Title:          {docs_result.get('title')}")
+        lines.append(f"  - Document ID:    {docs_result.get('document_id')}")
+        if docs_result.get("document_url"):
+            lines.append(f"  - Web URL:        {docs_result.get('document_url')}")
+        lines.append(f"  - Operation:      {docs_result.get('operation')}")
+        lines.append(f"  - Word Count:     {docs_result.get('word_count', 0)} words")
+        if docs_result.get("content_preview"):
+            lines.append(f"  - Content Preview: {docs_result.get('content_preview')[:150]}...")
+
     if email_draft:
         lines.append("\nEmail Dispatch Details:")
         lines.append(f"  - Recipient:   {', '.join(email_draft.get('to', []))}")

@@ -714,6 +714,30 @@ async def run_workflow_coordinator(task_id: str):
                         )
 
                 # -------------------------------------------------------------
+                # NODE: execute_docs
+                # -------------------------------------------------------------
+                elif node_name == "execute_docs":
+                    docs_res = node_output.get("docs_result")
+                    if docs_res:
+                        workflow["docs_result"] = docs_res
+                        d_dur = round(time.time() - (step3_start or time.time()), 1)
+                        log_activity(2, f"Google Doc processed: '{docs_res.get('title')}' ({docs_res.get('word_count', 0)} words)")
+                        if docs_res.get("document_url"):
+                            log_activity(2, f"Document URL: {docs_res.get('document_url')}")
+                        workflow["steps"][2]["status"] = "completed"
+                        workflow["steps"][2]["duration"] = f"{d_dur}s"
+                        workflow["steps"][2]["subtitle"] = f"Doc processed · {d_dur}s"
+                        record_log(
+                            task_id=task_id,
+                            query=query,
+                            status="Completed",
+                            description=f"Step 3: Google Doc '{docs_res.get('title')}' executed ({docs_res.get('operation')})",
+                            agent_name="DocsAgent",
+                            llm_name="openai/gpt-oss-120b (groq)",
+                            time_taken=d_dur
+                        )
+
+                # -------------------------------------------------------------
                 # NODE: draft_email
                 # -------------------------------------------------------------
                 elif node_name == "draft_email":

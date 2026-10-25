@@ -11,6 +11,7 @@ if backend_path not in sys.path:
 from agents.state import WorkflowState
 from agents.specialists.calendar_agent import CalendarAgent
 from agents.specialists.sheet_agent import sheet_agent_execution_node
+from agents.specialists.docs_agent import docs_agent_execution_node
 from tools.gmail_tools import gmail_mcp
 
 
@@ -19,6 +20,13 @@ async def execute_sheet_node(state: WorkflowState) -> Dict[str, Any]:
     LangGraph node: Executes Google Sheets creation and population via SheetAgent and FastMCP.
     """
     return await sheet_agent_execution_node(state)
+
+
+async def execute_docs_node(state: WorkflowState) -> Dict[str, Any]:
+    """
+    LangGraph node: Executes Google Docs operations via DocsAgent and FastMCP.
+    """
+    return await docs_agent_execution_node(state)
 
 
 async def execute_calendar_node(state: WorkflowState) -> Dict[str, Any]:
@@ -77,15 +85,27 @@ async def execute_gmail_node(state: WorkflowState) -> Dict[str, Any]:
     draft = state.get("email_draft") or {}
     sheet_result = state.get("sheet_result")
 
-    attachments = draft.get("attachments") or []
-    if not attachments and sheet_result and sheet_result.get("csv_content"):
+    attachments = list(draft.get("attachments") or [])
+    if not any("csv" in str(a.get("filename", "")).lower() for a in attachments) and sheet_result and sheet_result.get("csv_content"):
         filename = f"{sheet_result.get('title', 'sales')}.csv"
-        attachments = [{
+        attachments.append({
             "filename": filename,
             "content": sheet_result.get("csv_content"),
             "maintype": "text",
             "subtype": "csv"
-        }]
+        })
+
+    docs_result = state.get("docs_result")
+    if docs_result and not any("doc" in str(a.get("filename", "")).lower() for a in attachments):
+        doc_title = docs_result.get("title", "sales_insights")
+        doc_filename = doc_title if doc_title.endswith((".docx", ".txt", ".doc")) else f"{doc_title}.docx"
+        doc_content = docs_result.get("content_preview", "Sales Insights Document Content")
+        attachments.append({
+            "filename": doc_filename,
+            "content": doc_content,
+            "maintype": "text",
+            "subtype": "plain"
+        })
 
     tool_args = {
         "user_id": user_id,

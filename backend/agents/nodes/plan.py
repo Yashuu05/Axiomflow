@@ -27,7 +27,19 @@ def plan_node(state: WorkflowState) -> Dict[str, Any]:
         clarification_answers=clarification_answers
     )
 
+    has_sheets = any("sheets" in s.capability for s in plan.steps)
+    has_docs = any("docs" in s.capability for s in plan.steps)
+    has_cal = any("calendar" in s.capability for s in plan.steps)
+
+    next_status = (
+        "executing_sheet" if has_sheets
+        else ("executing_docs" if has_docs
+        else ("executing_calendar" if has_cal
+        else "drafting_email"))
+    )
+
     return {
         "plan": plan.model_dump(),
-        "status": "executing_sheet" if any("sheets" in s.capability for s in plan.steps) else "executing_calendar"
+        "status": next_status
     }
+

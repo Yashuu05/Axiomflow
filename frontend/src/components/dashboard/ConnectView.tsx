@@ -89,6 +89,8 @@ export default function ConnectView({
           "https://www.googleapis.com/auth/gmail.send",
           "https://www.googleapis.com/auth/calendar.events",
           "https://www.googleapis.com/auth/spreadsheets",
+          "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/drive.file",
         ].join(" "),
         ux_mode: "popup",
         callback: async (response: any) => {
@@ -174,7 +176,7 @@ export default function ConnectView({
           Connect External Services & Tools
         </h2>
         <p className="font-sans text-sm text-[#526359] max-w-xl mx-auto leading-relaxed">
-          Grant scoped permissions to your enterprise Google workspace to allow real-time AI tool execution (meeting scheduling, investor emailing, and spreadsheet management).
+          Grant scoped permissions to your enterprise Google workspace to allow real-time AI tool execution (meeting scheduling, investor emailing, spreadsheet management, and document workflows).
         </p>
       </div>
 
@@ -233,11 +235,11 @@ export default function ConnectView({
                     Authorized account: <strong className="text-[#1A2F25]">{connectedEmail}</strong>
                     <br />
                     <span className="text-[11px] text-[#526359]/90 font-mono">
-                      Active Scopes: Gmail (Send), Calendar (Events), Sheets (Read/Write)
+                      Active Scopes: Gmail (Send), Calendar (Events), Sheets (Read/Write), Docs (Read/Write/Create), Drive (File Management)
                     </span>
                   </>
                 ) : (
-                  "Connect Gmail (Send), Calendar (Events), and Google Sheets for real-time agent execution."
+                  "Connect Gmail (Send), Calendar (Events), Sheets, and Google Docs for real-time agent execution."
                 )}
               </p>
             </div>

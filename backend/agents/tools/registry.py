@@ -95,6 +95,50 @@ CAPABILITY_REGISTRY: Dict[str, Dict[str, Any]] = {
         "risk": "external_side_effect",
         "requires_approval": True,
         "parameters": ["spreadsheet_id", "range_name", "values"]
+    },
+
+    # Google Docs Capabilities
+    "docs.create": {
+        "description": "Creates a new blank Google Document with a title and optional initial text",
+        "service": "docs",
+        "risk": "external_side_effect",
+        "requires_approval": True,
+        "parameters": ["title", "initial_text"]
+    },
+    "docs.read": {
+        "description": "Reads full content, structural elements, and word count from a specified Google Document",
+        "service": "docs",
+        "risk": "read_only",
+        "requires_approval": False,
+        "parameters": ["document_id"]
+    },
+    "docs.write": {
+        "description": "Writes, inserts, or overwrites content in a specified Google Document",
+        "service": "docs",
+        "risk": "external_side_effect",
+        "requires_approval": True,
+        "parameters": ["document_id", "text", "mode"]
+    },
+    "docs.append": {
+        "description": "Appends formatted text to the end of a specified Google Document",
+        "service": "docs",
+        "risk": "external_side_effect",
+        "requires_approval": True,
+        "parameters": ["document_id", "text"]
+    },
+    "docs.replace_text": {
+        "description": "Replaces placeholders or occurrences of target text in a Google Document",
+        "service": "docs",
+        "risk": "external_side_effect",
+        "requires_approval": True,
+        "parameters": ["document_id", "search_text", "replace_text"]
+    },
+    "docs.delete": {
+        "description": "Moves a Google Document to trash or permanently deletes it via Google Drive API",
+        "service": "docs",
+        "risk": "external_side_effect",
+        "requires_approval": True,
+        "parameters": ["document_id", "permanent"]
     }
 }
 

@@ -4,6 +4,7 @@ import io
 import csv
 import json
 import random
+import re
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Tuple
 from pydantic import BaseModel, Field
@@ -15,6 +16,7 @@ if backend_path not in sys.path:
 
 from agents.state import SheetResult, WorkflowState
 from tools.sheet_tools import sheets_mcp
+from tools.client_factory import get_authorized_service
 
 
 class SheetAgent:
@@ -121,11 +123,12 @@ class SheetAgent:
         top_category_rev = category_revenue.get(top_category, 0.0)
         top_branch = max(branch_revenue.items(), key=lambda x: x[1])[0] if branch_revenue else "Main Branch"
         top_branch_rev = branch_revenue.get(top_branch, 0.0)
+        cat_pct = (top_category_rev / total_revenue * 100) if total_revenue > 0 else 0.0
 
         insights_lines = [
             f"- Gross Revenue: Total sales across all retail outlets reached INR {total_revenue:,.2f} over {len(rows)} transactions.",
             f"- Cumulative Net Profit: INR {total_profit:,.2f} maintaining a solid {margin_pct:.1f}% operating profit margin.",
-            f"- Top Product Segment: '{top_category}' led overall sales, generating INR {top_category_rev:,.2f} ({(top_category_rev / total_revenue * 100):.1f}% of total revenue).",
+            f"- Top Product Segment: '{top_category}' led overall sales, generating INR {top_category_rev:,.2f} ({cat_pct:.1f}% of total revenue).",
             f"- Leading Retail Outlet: '{top_branch}' delivered highest store-level revenue at INR {top_branch_rev:,.2f}.",
             f"- Units Moved: {total_units} total retail units sold during the analyzed period.",
             f"- Recommendation for Executive Review: Prioritize inventory replenishment for '{top_category}' and optimize staffing at '{top_branch}' ahead of holiday demand."
@@ -144,6 +147,64 @@ class SheetAgent:
         }
 
         return insights_text, metrics
+
+    def analyze_standard_sales(self, headers: List[str], rows: List[List[Any]]) -> Tuple[str, Dict[str, Any]]:
+        """
+        Performs business analytics on standard sales records (customer_id, date-time, quantity, total_price, discount).
+        """
+        col_map = {str(h).lower().replace("-", "_").replace(" ", "_"): idx for idx, h in enumerate(headers)}
+        qty_idx = col_map.get("quantity", col_map.get("units", 2))
+        price_idx = col_map.get("total_price", col_map.get("revenue", col_map.get("price", 3)))
+        cust_idx = col_map.get("customer_id", col_map.get("customer", 0))
+
+        total_revenue = 0.0
+        total_units = 0
+        order_count = 0
+        top_order_val = 0.0
+        top_cust = "N/A"
+
+        for r in rows:
+            try:
+                qty = int(float(str(r[qty_idx]).replace(',', '').strip())) if qty_idx < len(r) else 0
+                price = float(str(r[price_idx]).replace(',', '').replace('$', '').replace('INR', '').strip()) if price_idx < len(r) else 0.0
+                cust = str(r[cust_idx]) if cust_idx < len(r) else "Unknown"
+
+                total_revenue += price
+                total_units += qty
+                order_count += 1
+                if price > top_order_val:
+                    top_order_val = price
+                    top_cust = cust
+            except (ValueError, IndexError):
+                continue
+
+        avg_order = (total_revenue / order_count) if order_count > 0 else 0.0
+
+        insights_lines = [
+            f"- Gross Sales Revenue: Total transactions generated INR {total_revenue:,.2f} across {order_count} client orders.",
+            f"- Average Order Value (AOV): INR {avg_order:,.2f} per transaction.",
+            f"- Total Units Moved: {total_units:,} units sold across analyzed order volume.",
+            f"- High-Value Client Order: Customer '{top_cust}' placed the peak purchase at INR {top_order_val:,.2f}.",
+            f"- Executive Assessment: Sales data indicates robust purchasing volume with steady transaction frequency across the customer base."
+        ]
+        insights_text = "\n".join(insights_lines)
+
+        metrics = {
+            "total_revenue": total_revenue,
+            "order_count": order_count,
+            "average_order_value": round(avg_order, 2),
+            "total_units": total_units,
+            "top_order_value": top_order_val,
+            "top_customer": top_cust
+        }
+        return insights_text, metrics
+
+    def analyze_sales(self, headers: List[str], rows: List[List[Any]]) -> Tuple[str, Dict[str, Any]]:
+        """Automatically routes to the appropriate analyzer based on table header schema."""
+        hdr_lower = [str(h).lower() for h in headers]
+        if "category" in hdr_lower and ("profit" in hdr_lower or "cost" in hdr_lower):
+            return self.analyze_retail_sales(headers, rows)
+        return self.analyze_standard_sales(headers, rows)
 
     async def read_or_populate_retail_sales_sheet(
         self,
@@ -361,6 +422,114 @@ class SheetAgent:
         )
 
 
+    async def read_and_analyze_spreadsheet(
+        self,
+        user_id: str,
+        account_email: str,
+        spreadsheet_id: str,
+        title: Optional[str] = None
+    ) -> SheetResult:
+        """
+        Reads an existing Google Spreadsheet by ID, discovers its primary sheet tab,
+        populates sales records if empty, executes analytics, and generates CSV content.
+        """
+        print("\n" + "=" * 80)
+        print("          [SHEET AGENT] READING & ANALYZING EXISTING GOOGLE SPREADSHEET")
+        print("=" * 80)
+        print(f"User ID:        {user_id}")
+        print(f"Account Email:  {account_email}")
+        print(f"Spreadsheet ID: {spreadsheet_id}")
+        print("-" * 80)
+
+        # 1. Inspect spreadsheet metadata to detect title and primary sheet tab
+        resolved_title = title or "Sales Spreadsheet"
+        primary_tab = "sales"
+        spreadsheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+        try:
+            service = get_authorized_service("sheets", "v4", user_id, account_email)
+            meta = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+            resolved_title = meta.get("properties", {}).get("title", resolved_title)
+            spreadsheet_url = meta.get("spreadsheetUrl", spreadsheet_url)
+            sheets_meta = meta.get("sheets", [])
+            if sheets_meta:
+                primary_tab = sheets_meta[0].get("properties", {}).get("title", "sales")
+        except Exception as e:
+            print(f"[SHEET AGENT] [WARN] Metadata lookup failed ({e}), using default tab '{primary_tab}'")
+
+        # 2. Read cell values from primary tab
+        print(f"[SHEET AGENT] Step 1: Reading cell values from '{primary_tab}!A1:Z100' via FastMCP...")
+        read_args = {
+            "user_id": user_id,
+            "account_email": account_email,
+            "spreadsheet_id": spreadsheet_id,
+            "range_name": f"{primary_tab}!A1:Z100"
+        }
+        read_res = await sheets_mcp.call_tool("sheets_read_values", read_args)
+        if read_res.is_error:
+            raise RuntimeError(f"FastMCP sheets_read_values failed: {read_res.content}")
+
+        raw_read_data = read_res.structured_content or {}
+        read_data = raw_read_data.get("result", raw_read_data)
+        retrieved_matrix = read_data.get("values", [])
+
+        # 3. If empty, populate with initial sales data
+        if len(retrieved_matrix) <= 1:
+            print(f"[SHEET AGENT] Spreadsheet is empty. Populating sales transactions into '{primary_tab}!A1'...")
+            headers, rows = self.generate_random_sales_data(count=12)
+            append_args = {
+                "user_id": user_id,
+                "account_email": account_email,
+                "spreadsheet_id": spreadsheet_id,
+                "range_name": f"{primary_tab}!A1",
+                "values": [headers] + rows
+            }
+            await sheets_mcp.call_tool("sheets_append_values", append_args)
+
+            # Re-read populated values
+            re_read_res = await sheets_mcp.call_tool("sheets_read_values", read_args)
+            raw_re_read = re_read_res.structured_content or {}
+            retrieved_matrix = raw_re_read.get("result", raw_re_read).get("values", [headers] + rows)
+
+        retrieved_headers = retrieved_matrix[0] if retrieved_matrix else ["customer_id", "date-time", "quantity", "total_price", "discount"]
+        data_rows = retrieved_matrix[1:] if len(retrieved_matrix) > 1 else []
+
+        # 4. Perform Analytics
+        print("\n[SHEET AGENT] Step 2: Performing Data & Financial Analysis on retrieved sheet...")
+        insights_text, metrics = self.analyze_sales(retrieved_headers, data_rows)
+
+        # 5. Build CSV Export Content
+        csv_buffer = io.StringIO()
+        csv_writer = csv.writer(csv_buffer)
+        csv_writer.writerow(retrieved_headers)
+        csv_writer.writerows(data_rows)
+        csv_content = csv_buffer.getvalue()
+
+        print("\n" + "-" * 80)
+        print("          [SHEET AGENT] COMPUTED METRICS & EXECUTIVE INSIGHTS")
+        print("-" * 80)
+        print(f"Spreadsheet ID:  {spreadsheet_id}")
+        print(f"Spreadsheet URL: {spreadsheet_url}")
+        print(f"Analyzed Rows:   {len(data_rows)}")
+        print("\nExecutive Insights:")
+        print(insights_text)
+        print("-" * 80)
+        print(f"[SHEET AGENT] CSV Content ready for attachment ({len(csv_content)} bytes).")
+        print("=" * 80 + "\n")
+
+        return SheetResult(
+            spreadsheet_id=spreadsheet_id,
+            spreadsheet_url=spreadsheet_url,
+            title=resolved_title,
+            sheet_name=primary_tab,
+            row_count=len(data_rows),
+            headers=retrieved_headers,
+            values=data_rows,
+            csv_content=csv_content,
+            insights=insights_text,
+            summary_metrics=metrics
+        )
+
+
 async def sheet_agent_execution_node(state: WorkflowState) -> Dict[str, Any]:
     """
     LangGraph node adapter for Sheet Agent execution.
@@ -369,84 +538,87 @@ async def sheet_agent_execution_node(state: WorkflowState) -> Dict[str, Any]:
     """
     user_id = state.get("user_id", "usr_72b30e7cd49e49e5")
     account_email = state.get("account_email", "chillalyash2005@gmail.com")
-    request = state.get("request", "").lower()
+    request_raw = state.get("request", "")
+    request = request_raw.lower()
     plan = state.get("plan") or {}
 
     title = "sales"
     sheet_name = "sales"
+    existing_sheet_id = None
 
-    # Inspect plan parameters if planner provided explicit sheet title
+    # Inspect plan parameters if planner provided explicit sheet title or ID
     if plan and "steps" in plan:
         for step in plan["steps"]:
             if "sheets" in step.get("capability", ""):
                 params = step.get("parameters", {})
                 title = params.get("title", params.get("sheet_title", title))
                 sheet_name = params.get("sheet_name", sheet_name)
+                existing_sheet_id = params.get("spreadsheet_id")
                 break
+
+    # If not in plan parameters, check if a spreadsheet URL or ID is in user request or plan
+    if not existing_sheet_id:
+        url_match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", request_raw)
+        if url_match:
+            existing_sheet_id = url_match.group(1).strip()
+        else:
+            plan_match = re.search(r"spreadsheets/d/([a-zA-Z0-9-_]+)", str(plan))
+            if plan_match:
+                existing_sheet_id = plan_match.group(1).strip()
 
     agent = SheetAgent()
 
-    # Route between retail sales analysis or standard sales creation
-    is_retail_analysis = (
-        "retail" in title.lower() or
-        "retail" in request or
-        "insight" in request or
-        "analyse" in request or
-        "analyze" in request
-    )
-
-    if is_retail_analysis:
-        target_title = "retail_sales" if "retail" in title.lower() or "retail" in request else title
-        sheet_result = await agent.read_or_populate_retail_sales_sheet(
+    # If an existing spreadsheet was targeted by URL or ID, read and analyze it directly
+    if existing_sheet_id and len(existing_sheet_id) >= 20 and not existing_sheet_id.startswith("step_"):
+        sheet_result = await agent.read_and_analyze_spreadsheet(
             user_id=user_id,
             account_email=account_email,
-            title=target_title,
-            sheet_name=target_title
+            spreadsheet_id=existing_sheet_id,
+            title=title
         )
     else:
-        sheet_result = await agent.create_and_populate_sheet_via_mcp(
-            user_id=user_id,
-            account_email=account_email,
-            title=title,
-            sheet_name=sheet_name,
-            num_records=10
+        # Route between retail sales analysis or standard sales creation
+        is_retail_analysis = (
+            "retail" in title.lower() or
+            "retail" in request or
+            "insight" in request or
+            "analyse" in request or
+            "analyze" in request
         )
+
+        if is_retail_analysis:
+            target_title = "retail_sales" if "retail" in title.lower() or "retail" in request else title
+            sheet_result = await agent.read_or_populate_retail_sales_sheet(
+                user_id=user_id,
+                account_email=account_email,
+                title=target_title,
+                sheet_name=target_title
+            )
+        else:
+            sheet_result = await agent.create_and_populate_sheet_via_mcp(
+                user_id=user_id,
+                account_email=account_email,
+                title=title,
+                sheet_name=sheet_name,
+                num_records=10
+            )
 
     outcomes = list(state.get("tool_outcomes", []))
     outcomes.append({
-        "step_id": "sheets_create_spreadsheet",
-        "capability": "sheets.create",
+        "step_id": "sheets_read_or_create",
+        "capability": "sheets.read" if existing_sheet_id else "sheets.create",
         "status": "succeeded",
         "resource_id": sheet_result.spreadsheet_id,
         "data": {
             "title": sheet_result.title,
-            "url": sheet_result.spreadsheet_url
-        }
-    })
-    outcomes.append({
-        "step_id": "sheets_append_values",
-        "capability": "sheets.append",
-        "status": "succeeded",
-        "resource_id": sheet_result.spreadsheet_id,
-        "data": {
+            "url": sheet_result.spreadsheet_url,
             "row_count": sheet_result.row_count,
-            "headers": sheet_result.headers
+            "insights": sheet_result.insights
         }
     })
-    if sheet_result.insights:
-        outcomes.append({
-            "step_id": "sheets_read_values",
-            "capability": "sheets.read",
-            "status": "succeeded",
-            "resource_id": sheet_result.spreadsheet_id,
-            "data": {
-                "insights": sheet_result.insights,
-                "metrics": sheet_result.summary_metrics
-            }
-        })
 
     return {
         "sheet_result": sheet_result.model_dump(),
         "tool_outcomes": outcomes,
-        "status": "drafting_email"
+        "status": "executing_sheet"
     }

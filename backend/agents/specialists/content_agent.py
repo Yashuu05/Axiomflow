@@ -47,10 +47,13 @@ CRITICAL RULES:
    - If spreadsheet insights or metrics are present in context, EXPLICITLY explain and highlight those key insights (such as revenue, profit margins, top-performing product category, leading branches, and recommendations) clearly in the email body using bullet points.
    - Mention the spreadsheet title, summary of records, and include the live Google Spreadsheet URL directly in the email body.
    - Explicitly inform the recipient that the complete spreadsheet data is attached as a CSV file for offline reference.
-4. MEETING CONTEXT:
+4. GOOGLE DOCS CONTEXT:
+   - If a Google Document (e.g., 'sales_insights.docx') was created or written in the workflow context (see docs_result in context), explicitly inform the recipient (e.g. CFO) about the document.
+   - Include the document title and the live Google Document URL directly in the email body so the recipient can review it online.
+5. MEETING CONTEXT:
    - If a meeting has been scheduled (see calendar_event in context), incorporate the meeting date, time, attendees (e.g., CEO, CFO, finance team), and Google Meet URL directly into the body.
    - Explain that the meeting is convened to discuss the insights and data from the sheet.
-5. REVISION INSTRUCTIONS:
+6. REVISION INSTRUCTIONS:
    - If user revision suggestions are provided, apply them accurately while maintaining professionalism.
 """
 
@@ -154,6 +157,7 @@ def email_content_node(state: WorkflowState) -> Dict[str, Any]:
     business_context = state.get("business_context", {})
     calendar_event = state.get("calendar_event")
     sheet_result = state.get("sheet_result")
+    docs_result = state.get("docs_result")
     clarification_answers = state.get("clarification_answers")
 
     supervisor_context = {
@@ -166,6 +170,13 @@ def email_content_node(state: WorkflowState) -> Dict[str, Any]:
             "insights": sheet_result.get("insights") if sheet_result else None,
             "summary_metrics": sheet_result.get("summary_metrics") if sheet_result else None
         } if sheet_result else None,
+        "docs_result": {
+            "title": docs_result.get("title") if docs_result else None,
+            "document_url": docs_result.get("document_url") if docs_result else None,
+            "word_count": docs_result.get("word_count") if docs_result else None,
+            "operation": docs_result.get("operation") if docs_result else None,
+            "content_preview": docs_result.get("content_preview") if docs_result else None
+        } if docs_result else None,
         "clarification_answers": clarification_answers,
         "user_id": state.get("user_id"),
         "account_email": state.get("account_email")
@@ -178,17 +189,30 @@ def email_content_node(state: WorkflowState) -> Dict[str, Any]:
         supervisor_context=supervisor_context
     )
 
-    # Attach generated CSV if sheet_result is present
+    # Attach generated CSV and document content if present
+    attachments = []
     if sheet_result and sheet_result.get("csv_content"):
         filename = f"{sheet_result.get('title', 'sales')}.csv"
-        # Ensure attachment list has this file
-        attachment_obj = {
+        attachments.append({
             "filename": filename,
             "content": sheet_result.get("csv_content"),
             "maintype": "text",
             "subtype": "csv"
-        }
-        draft.attachments = [attachment_obj]
+        })
+
+    if docs_result and docs_result.get("title"):
+        doc_title = docs_result.get("title", "sales_insights")
+        doc_filename = doc_title if doc_title.endswith((".docx", ".txt", ".doc")) else f"{doc_title}.docx"
+        doc_content = docs_result.get("content_preview", "Sales Insights Document Content")
+        attachments.append({
+            "filename": doc_filename,
+            "content": doc_content,
+            "maintype": "text",
+            "subtype": "plain"
+        })
+
+    if attachments:
+        draft.attachments = attachments
 
     # Real-time Terminal Observability & Tracing
     print("\n" + "=" * 80)
@@ -217,6 +241,7 @@ def email_revision_node(state: WorkflowState) -> Dict[str, Any]:
     business_context = state.get("business_context", {})
     calendar_event = state.get("calendar_event")
     sheet_result = state.get("sheet_result")
+    docs_result = state.get("docs_result")
     clarification_answers = state.get("clarification_answers")
     current_revisions = state.get("revision_count", 0)
 
@@ -230,6 +255,13 @@ def email_revision_node(state: WorkflowState) -> Dict[str, Any]:
             "insights": sheet_result.get("insights") if sheet_result else None,
             "summary_metrics": sheet_result.get("summary_metrics") if sheet_result else None
         } if sheet_result else None,
+        "docs_result": {
+            "title": docs_result.get("title") if docs_result else None,
+            "document_url": docs_result.get("document_url") if docs_result else None,
+            "word_count": docs_result.get("word_count") if docs_result else None,
+            "operation": docs_result.get("operation") if docs_result else None,
+            "content_preview": docs_result.get("content_preview") if docs_result else None
+        } if docs_result else None,
         "clarification_answers": clarification_answers,
         "user_id": state.get("user_id"),
         "account_email": state.get("account_email")
@@ -243,15 +275,27 @@ def email_revision_node(state: WorkflowState) -> Dict[str, Any]:
         supervisor_context=supervisor_context
     )
 
-    # Maintain CSV attachment across revisions
+    # Maintain attachments across revisions
+    revised_attachments = []
     if sheet_result and sheet_result.get("csv_content"):
         filename = f"{sheet_result.get('title', 'sales')}.csv"
-        updated_draft.attachments = [{
+        revised_attachments.append({
             "filename": filename,
             "content": sheet_result.get("csv_content"),
             "maintype": "text",
             "subtype": "csv"
-        }]
+        })
+    if docs_result and docs_result.get("title"):
+        doc_title = docs_result.get("title", "sales_insights")
+        doc_filename = doc_title if doc_title.endswith((".docx", ".txt", ".doc")) else f"{doc_title}.docx"
+        revised_attachments.append({
+            "filename": doc_filename,
+            "content": docs_result.get("content_preview", "Sales Insights Document Content"),
+            "maintype": "text",
+            "subtype": "plain"
+        })
+    if revised_attachments:
+        updated_draft.attachments = revised_attachments
 
     # Real-time Terminal Observability & Tracing
     print("\n" + "=" * 80)
