@@ -2,8 +2,31 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import StepTimeline, { WorkflowStep } from "./StepTimeline";
-import StepDetail from "./StepDetail";
-import RadialDotsSpinner from "./RadialDotsSpinner";
+import StepDetail, { DocsResult } from "./StepDetail";
+
+interface EmailDraft {
+  subject?: string;
+  to?: string[];
+  body?: string;
+  meet_link?: string;
+}
+
+interface CalendarEvent {
+  event_id?: string;
+  summary?: string;
+  start_time?: string;
+  end_time?: string;
+  meet_link?: string;
+  attendees?: string[];
+}
+
+interface SheetResult {
+  spreadsheet_id?: string;
+  title?: string;
+  spreadsheet_url?: string;
+  row_count?: number;
+  headers?: string[];
+}
 
 interface WorkflowRunningViewProps {
   taskId?: string | null;
@@ -23,16 +46,22 @@ export default function WorkflowRunningView({
   const [progressPercent, setProgressPercent] = useState<number>(0);
   const [currentRunningStepIndex, setCurrentRunningStepIndex] = useState<number>(0);
   const [workflowStatus, setWorkflowStatus] = useState<string>("initializing");
-  const [emailDraft, setEmailDraft] = useState<any>(null);
-  const [calendarEvent, setCalendarEvent] = useState<any>(null);
-  const [sheetResult, setSheetResult] = useState<any>(null);
+  const [emailDraft, setEmailDraft] = useState<EmailDraft | null>(null);
+  const [calendarEvent, setCalendarEvent] = useState<CalendarEvent | null>(null);
+  const [sheetResult, setSheetResult] = useState<SheetResult | null>(null);
+  const [docsResult, setDocsResult] = useState<DocsResult | null>(null);
   const [objective, setObjective] = useState<string>(initialObjective || "---");
+
+  // Safety confirmation for stopping a running workflow
+  const [confirmStop, setConfirmStop] = useState<boolean>(false);
+  const stopTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const startTimeRef = useRef<number | null>(null);
 
-  // Dedicated 1-second interval timer that increments smoothly by exactly 1s every 1000ms
+  // Monotonic, drift-free execution stopwatch hook
   useEffect(() => {
     const isCurrentlyActive =
       (workflowStatus === "running" ||
@@ -42,10 +71,16 @@ export default function WorkflowRunningView({
       !!taskId;
 
     if (isCurrentlyActive) {
+      if (!startTimeRef.current) {
+        startTimeRef.current = Date.now() - elapsedSeconds * 1000;
+      }
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = setInterval(() => {
-        setElapsedSeconds((prev) => prev + 1);
-      }, 1000);
+        if (startTimeRef.current) {
+          const monotonic = Math.max(0, Math.floor((Date.now() - startTimeRef.current) / 1000));
+          setElapsedSeconds(monotonic);
+        }
+      }, 500);
     } else {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
@@ -59,7 +94,7 @@ export default function WorkflowRunningView({
         timerIntervalRef.current = null;
       }
     };
-  }, [workflowStatus, isPaused, taskId]);
+  }, [workflowStatus, isPaused, taskId, elapsedSeconds]);
 
   // Poll backend for real-time workflow status
   const pollStatus = useCallback(async () => {
@@ -71,37 +106,42 @@ export default function WorkflowRunningView({
         if (data.query) setObjective(data.query);
         if (data.status) setWorkflowStatus(data.status);
         if (typeof data.is_paused === "boolean") setIsPaused(data.is_paused);
+
         if (data.steps && data.steps.length > 0) {
           setSteps(data.steps);
-          // If selectedStepId not set or invalid, select running/waiting step
-          const activeStep = data.steps.find(
-            (s: WorkflowStep) => s.status === "running" || s.status === "waiting"
-          );
-          if (activeStep) {
+          // If current selection is waiting or running, ensure it stays in focus
+          const waiting = data.steps.find((s: WorkflowStep) => s.status === "waiting");
+          const running = data.steps.find((s: WorkflowStep) => s.status === "running");
+          const target = waiting || running;
+          if (target) {
             setSelectedStepId((prev) => {
               const stillExists = data.steps.some((s: WorkflowStep) => s.id === prev);
-              return stillExists ? prev : activeStep.id;
+              return stillExists ? prev : target.id;
             });
           }
         }
+
         if (typeof data.elapsed_seconds === "number") {
-          // If terminal status, lock directly to server total
+          // If terminal status, freeze directly to server total
           if (
             data.status === "completed" ||
             data.status === "failed" ||
             data.status === "rejected"
           ) {
             setElapsedSeconds(data.elapsed_seconds);
+            startTimeRef.current = null;
           } else {
-            // While running, only perform drift correction if divergence exceeds 2 seconds
-            setElapsedSeconds((prev) => {
-              if (prev === 0 || Math.abs(prev - data.elapsed_seconds) > 2) {
-                return data.elapsed_seconds;
-              }
-              return prev;
-            });
+            // While running, only perform drift correction if divergence exceeds 3s
+            const currentComputed = startTimeRef.current
+              ? Math.floor((Date.now() - startTimeRef.current) / 1000)
+              : 0;
+            if (!startTimeRef.current || Math.abs(currentComputed - data.elapsed_seconds) > 3) {
+              startTimeRef.current = Date.now() - data.elapsed_seconds * 1000;
+              setElapsedSeconds(data.elapsed_seconds);
+            }
           }
         }
+
         if (typeof data.progress_percent === "number") {
           setProgressPercent(data.progress_percent);
         }
@@ -116,6 +156,9 @@ export default function WorkflowRunningView({
         }
         if (data.sheet_result) {
           setSheetResult(data.sheet_result);
+        }
+        if (data.docs_result) {
+          setDocsResult(data.docs_result);
         }
 
         // Stop polling if reached terminal status
@@ -136,17 +179,12 @@ export default function WorkflowRunningView({
   }, [taskId, API_BASE]);
 
   useEffect(() => {
-    if (!taskId) {
-      setSteps([]);
-      setObjective("---");
-      setElapsedSeconds(0);
-      setProgressPercent(0);
-      setWorkflowStatus("idle");
-      return;
-    }
+    if (!taskId) return;
 
-    // Initial fetch
-    pollStatus();
+    // Initial asynchronous fetch
+    const initTimer = setTimeout(() => {
+      pollStatus();
+    }, 0);
 
     // Set polling interval every 1.5 seconds while active
     pollIntervalRef.current = setInterval(() => {
@@ -154,6 +192,7 @@ export default function WorkflowRunningView({
     }, 1500);
 
     return () => {
+      clearTimeout(initTimer);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -172,8 +211,11 @@ export default function WorkflowRunningView({
   // Selected step object
   const selectedStep = steps.find((s) => s.id === selectedStepId) || steps[0];
 
+  // Waiting step for supervisory banner
+  const waitingStep = steps.find((s) => s.status === "waiting");
+
   // Handle Human Approval
-  const handleApproveStep = async (stepId: string) => {
+  const handleApproveStep = async () => {
     if (!taskId) return;
     try {
       const res = await fetch(`${API_BASE}/api/workflow/approve`, {
@@ -192,7 +234,7 @@ export default function WorkflowRunningView({
     }
   };
 
-  const handleRejectStep = async (stepId: string) => {
+  const handleRejectStep = async () => {
     if (!taskId) return;
     try {
       const res = await fetch(`${API_BASE}/api/workflow/approve`, {
@@ -211,7 +253,7 @@ export default function WorkflowRunningView({
     }
   };
 
-  const handleSaveEdits = async (stepId: string, newBody: string) => {
+  const handleSaveEdits = async (_stepId: string, newBody: string) => {
     if (!taskId) return;
     try {
       const res = await fetch(`${API_BASE}/api/workflow/approve`, {
@@ -231,7 +273,7 @@ export default function WorkflowRunningView({
     }
   };
 
-  const handleRetryStep = async (stepId: string) => {
+  const handleRetryStep = async () => {
     pollStatus();
   };
 
@@ -267,33 +309,72 @@ export default function WorkflowRunningView({
     }
   };
 
+  const onStopButtonClick = () => {
+    if (!confirmStop) {
+      setConfirmStop(true);
+      if (stopTimeoutRef.current) clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = setTimeout(() => {
+        setConfirmStop(false);
+      }, 3500);
+    } else {
+      setConfirmStop(false);
+      if (stopTimeoutRef.current) clearTimeout(stopTimeoutRef.current);
+      handleStopWorkflow();
+    }
+  };
+
   const isCompleted = workflowStatus === "completed";
   const isFailed = workflowStatus === "failed" || workflowStatus === "rejected";
-  const isWaiting = workflowStatus === "waiting_approval";
+  const isWaiting = workflowStatus === "waiting_approval" || !!waitingStep;
   const isRunning = workflowStatus === "running";
 
   return (
-    <div className="flex-1 flex flex-col justify-between py-2 md:py-4">
+    <div className="flex-1 flex flex-col justify-between py-1 md:py-2 h-full overflow-hidden">
       {/* Top Objective Bar */}
-      <div className="pb-4 border-b border-[#E06D53]/30">
+      <div className="pb-3 border-b border-[#E06D53]/25 shrink-0">
         <div className="flex items-center justify-between gap-4">
-          <div className="font-editorial text-2xl sm:text-3xl text-[#1A2F25] leading-tight">
-            <span className="text-[#E06D53] mr-2">Objective:</span>
-            <span>{objective || "---"}</span>
+          <div className="font-editorial text-2xl sm:text-3xl text-[#1A2F25] leading-tight flex items-baseline gap-2 truncate">
+            <span className="text-[#E06D53] shrink-0 font-normal">Objective:</span>
+            <span className="truncate font-normal">{objective || "---"}</span>
           </div>
 
           <button
             type="button"
             onClick={onResetWorkflow}
-            className="text-xs font-mono text-[#526359] hover:text-[#E06D53] border border-[#1A2F25]/15 px-3 py-1.5 rounded-full bg-white hover:bg-white/80 transition-colors shrink-0 hidden sm:inline-block cursor-pointer"
+            className="text-xs font-mono text-[#526359] hover:text-[#E06D53] border border-[#1A2F25]/15 px-3 py-1.5 rounded-full bg-white hover:bg-white/80 transition-colors shrink-0 cursor-pointer shadow-2xs"
           >
             + New Objective
           </button>
         </div>
       </div>
 
+      {/* Persistent Sticky Supervisory Hold Banner — Visible regardless of active tab/step */}
+      {isWaiting && (
+        <div className="mt-3 px-4 py-2.5 bg-amber-500/10 border border-[#E5A93C] rounded-2xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-3 w-3 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E5A93C] opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-[#E5A93C]"></span>
+            </span>
+            <span className="text-xs sm:text-sm font-sans font-semibold text-[#1A2F25]">
+              Supervisory Sign-Off Required: Outgoing communication waiting for review in Step {waitingStep?.number || 4}.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (waitingStep) setSelectedStepId(waitingStep.id);
+            }}
+            className="px-3.5 py-1 bg-[#E5A93C] hover:bg-[#D4982E] text-white text-xs font-sans font-medium rounded-full transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+          >
+            <span>Review Draft Now</span>
+            <span>&rarr;</span>
+          </button>
+        </div>
+      )}
+
       {/* Status Bar & Controls */}
-      <div className="my-5 flex flex-col items-center justify-center gap-3">
+      <div className="my-3 flex flex-col items-center justify-center gap-2.5 shrink-0">
         <div className="flex flex-wrap items-center justify-center gap-3 text-sm md:text-base font-editorial text-[#1A2F25]">
           <div className="flex items-center gap-2">
             <span className="relative flex h-3.5 w-3.5 items-center justify-center">
@@ -337,39 +418,61 @@ export default function WorkflowRunningView({
               <button
                 type="button"
                 onClick={handleTogglePause}
-                className="px-4 py-1 bg-[#CD5B42] hover:bg-[#E06D53] text-white font-sans text-xs font-medium rounded-full transition-all shadow-xs cursor-pointer"
+                className={`px-3.5 py-1 text-white font-sans text-xs font-medium rounded-full transition-all shadow-xs cursor-pointer flex items-center gap-1.5 ${
+                  isPaused ? "bg-amber-600 hover:bg-amber-700 animate-pulse" : "bg-[#CD5B42] hover:bg-[#E06D53]"
+                }`}
               >
-                {isPaused ? "Resume" : "Pause"}
+                <span>{isPaused ? "▶ Resume" : "⏸ Pause"}</span>
               </button>
+
               <button
                 type="button"
-                onClick={handleStopWorkflow}
-                className="px-4 py-1 bg-[#1A2F25] hover:bg-[#2A4739] text-white font-sans text-xs font-medium rounded-full transition-all shadow-xs cursor-pointer"
+                onClick={onStopButtonClick}
+                className={`px-3.5 py-1 text-xs font-sans font-medium rounded-full transition-all shadow-xs cursor-pointer ${
+                  confirmStop
+                    ? "bg-red-600 hover:bg-red-700 text-white animate-bounce"
+                    : "bg-[#1A2F25] hover:bg-[#2A4739] text-white"
+                }`}
+                title={confirmStop ? "Click again to confirm immediate abort" : "Stop active workflow"}
               >
-                Stop
+                {confirmStop ? "Confirm Abort?" : "Stop"}
               </button>
             </div>
           )}
         </div>
 
-        {/* Progress Bar */}
-        <div className="w-full max-w-xl flex items-center gap-4">
-          <div className="flex-1 bg-[#1A2F25]/10 h-2 rounded-full overflow-hidden relative">
+        {/* Milestone-Segmented Progress Bar */}
+        <div className="w-full max-w-xl flex flex-col gap-1">
+          <div className="flex items-center justify-between text-[11px] font-mono text-[#526359] px-0.5">
+            <span>
+              Step {steps.length > 0 ? Math.min(currentRunningStepIndex + 1, steps.length) : 0} of {steps.length || 6}
+            </span>
+            <span className="font-semibold text-[#1A2F25]">{progressPercent}% Complete</span>
+          </div>
+          <div className="w-full bg-[#1A2F25]/10 h-2.5 rounded-full overflow-hidden relative">
             <div
-              className="h-full bg-gradient-to-r from-[#E5A93C] to-[#E06D53] transition-all duration-500 rounded-full"
+              className="h-full bg-gradient-to-r from-[#E5A93C] via-[#E06D53] to-[#CD5B42] transition-all duration-500 rounded-full"
               style={{ width: `${progressPercent}%` }}
             />
+            {/* Discrete step milestone tick marks */}
+            {steps.length > 1 && (
+              <div className="absolute inset-0 flex justify-between px-1 pointer-events-none">
+                {steps.map((_, i) => (
+                  <span
+                    key={i}
+                    className="w-0.5 h-full bg-white/50"
+                  />
+                ))}
+              </div>
+            )}
           </div>
-          <span className="font-editorial text-xl text-[#1A2F25] shrink-0">
-            {progressPercent} %
-          </span>
         </div>
       </div>
 
       {/* Two Column Layout matching layout.png */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 my-4 min-h-[380px]">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-5 my-2 min-h-0 overflow-hidden">
         {/* Left Column: Timeline */}
-        <div className="md:col-span-5 border-r-0 md:border-r border-[#1A2F25]/10 flex flex-col justify-start">
+        <div className="md:col-span-5 border-r-0 md:border-r border-[#1A2F25]/10 flex flex-col justify-start overflow-y-auto pr-1">
           {steps.length === 0 ? (
             <div className="py-16 px-4 text-center text-xs font-mono text-[#526359] border border-dashed border-[#1A2F25]/15 rounded-2xl flex flex-col items-center justify-center">
               <span className="text-xl mb-2">⚡</span>
@@ -397,7 +500,7 @@ export default function WorkflowRunningView({
         </div>
 
         {/* Right Column: Step Detail */}
-        <div className="md:col-span-7">
+        <div className="md:col-span-7 flex flex-col min-h-0 overflow-hidden">
           {steps.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center p-8 text-center text-[#526359] border border-[#1A2F25]/10 rounded-2xl bg-white/40">
               <p className="font-editorial text-2xl text-[#1A2F25] mb-2">no data available (---)</p>
@@ -408,37 +511,16 @@ export default function WorkflowRunningView({
           ) : (
             <StepDetail
               step={selectedStep}
-              emailDraft={emailDraft}
-              calendarEvent={calendarEvent}
-              sheetResult={sheetResult}
+              emailDraft={emailDraft || undefined}
+              calendarEvent={calendarEvent || undefined}
+              sheetResult={sheetResult || undefined}
+              docsResult={docsResult || undefined}
               onApproveStep={handleApproveStep}
               onRejectStep={handleRejectStep}
               onRetryStep={handleRetryStep}
               onSaveEdits={handleSaveEdits}
             />
           )}
-        </div>
-      </div>
-
-      {/* Bottom Composer Bar */}
-      <div className="w-full max-w-4xl mx-auto px-2 pt-4">
-        <div className="relative flex items-center bg-white border border-[#E06D53] rounded-full shadow-[0_4px_24px_-6px_rgba(224,109,83,0.15)] p-2.5 pl-6">
-          <div className="w-full font-editorial text-lg md:text-xl text-[#1A2F25] truncate select-none">
-            {objective || "---"}
-          </div>
-
-          {/* Rotating spinner if active, or check if completed */}
-          <div className="pr-2 shrink-0">
-            {isRunning ? (
-              <RadialDotsSpinner size={34} color="#E06D53" />
-            ) : isCompleted ? (
-              <span className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm">
-                ✓
-              </span>
-            ) : (
-              <span className="text-xs font-mono text-[#526359] px-2">---</span>
-            )}
-          </div>
         </div>
       </div>
     </div>

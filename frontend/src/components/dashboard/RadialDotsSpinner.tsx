@@ -29,7 +29,7 @@ export default function RadialDotsSpinner({
         width={size}
         height={size}
         className="animate-spin"
-        style={{ animationDuration: "1.2s", animationTimingFunction: "steps(8, end)" }}
+        style={{ animationDuration: "1.4s", animationTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)" }}
       >
         {Array.from({ length: dotCount }).map((_, index) => {
           const angle = (index * 360) / dotCount - 90;

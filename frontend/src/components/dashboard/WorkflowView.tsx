@@ -77,34 +77,6 @@ export default function WorkflowView() {
 
   return (
     <div className="flex-1 flex flex-col justify-between h-full">
-      {/* State Switcher Indicator */}
-      <div className="flex justify-end mb-2">
-        <div className="inline-flex items-center gap-1 bg-[#1A2F25]/5 p-1 rounded-full text-[11px] font-mono">
-          <button
-            type="button"
-            onClick={() => setIsRunning(false)}
-            className={`px-3 py-1 rounded-full transition-all cursor-pointer ${
-              !isRunning
-                ? "bg-white text-[#1A2F25] font-semibold shadow-xs"
-                : "text-[#526359] hover:text-[#1A2F25]"
-            }`}
-          >
-            Before Run
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsRunning(true)}
-            className={`px-3 py-1 rounded-full transition-all cursor-pointer ${
-              isRunning
-                ? "bg-[#E06D53] text-white font-semibold shadow-xs"
-                : "text-[#526359] hover:text-[#1A2F25]"
-            }`}
-          >
-            Active Workflow
-          </button>
-        </div>
-      </div>
-
       {isRunning ? (
         <WorkflowRunningView
           taskId={activeTaskId}
