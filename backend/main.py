@@ -66,6 +66,10 @@ class BusinessProfileData(BaseModel):
     phone_no: Optional[str] = Field(None, max_length=25, description="Official telephone number")
     email: Optional[EmailStr] = Field(None, description="Official business email")
     website_url: Optional[str] = Field(None, max_length=500, description="Corporate website URL")
+    location_address: Optional[str] = Field(None, description="Physical / registered business location address")
+    address: Optional[str] = Field(None, description="Physical / registered business location address (fallback)")
+    time_zone: Optional[str] = Field("Asia/Kolkata", max_length=100, description="Operating time zone (e.g. Asia/Kolkata)")
+    country: Optional[str] = Field("INDIA", max_length=100, description="Country of operations (e.g. INDIA)")
     description: Optional[str] = Field(None, description="Company description / brief")
 
 class BusinessRegistrationRequest(BaseModel):
@@ -113,6 +117,9 @@ class BusinessProfileUpdate(BaseModel):
     phone_no: Optional[str] = None
     email: Optional[str] = None
     website_url: Optional[str] = None
+    location_address: Optional[str] = None
+    time_zone: Optional[str] = None
+    country: Optional[str] = None
     address: Optional[str] = None
     description: Optional[str] = None
 
@@ -193,12 +200,18 @@ def register_business(payload: BusinessRegistrationRequest):
                     detail=f"Business with GSTIN '{biz_gstin}' is already registered under '{existing_biz['business_name']}'."
                 )
 
+            # Resolve location address & regional settings
+            loc_addr = (biz_data.location_address or biz_data.address or "").strip() or None
+            time_zone = (biz_data.time_zone or "Asia/Kolkata").strip()
+            country = (biz_data.country or "INDIA").strip()
+
             # 3. Insert into `business_profile`
             insert_business_sql = """
                 INSERT INTO `business_profile` (
                     `business_name`, `sector`, `gstin`, `cin`, 
-                    `phone_no`, `email`, `website_url`, `description`
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+                    `phone_no`, `email`, `website_url`, `location_address`,
+                    `time_zone`, `country`, `description`, `address`
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
             """
             cur.execute(
                 insert_business_sql,
@@ -210,7 +223,11 @@ def register_business(payload: BusinessRegistrationRequest):
                     biz_data.phone_no.strip() if biz_data.phone_no else None,
                     str(biz_data.email).strip().lower() if biz_data.email else None,
                     biz_data.website_url.strip() if biz_data.website_url else None,
+                    loc_addr,
+                    time_zone,
+                    country,
                     biz_data.description.strip() if biz_data.description else None,
+                    loc_addr,
                 )
             )
             business_id = cur.lastrowid

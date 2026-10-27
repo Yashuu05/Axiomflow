@@ -16,6 +16,9 @@ interface BusinessProfileFields {
   phone_no: string;
   email: string;
   website_url: string;
+  location_address?: string;
+  time_zone?: string;
+  country?: string;
   address: string;
   description: string;
   created_at?: string;
@@ -85,6 +88,9 @@ export default function ProfileView({
     phone_no: "",
     email: "",
     website_url: "",
+    location_address: "",
+    time_zone: "Asia/Kolkata",
+    country: "INDIA",
     address: "",
     description: "",
   });
@@ -135,7 +141,10 @@ export default function ProfileView({
             phone_no: data.business.phone_no || "",
             email: data.business.email || "",
             website_url: data.business.website_url || "",
-            address: data.business.address || "",
+            location_address: data.business.location_address || data.business.address || "",
+            time_zone: data.business.time_zone || "Asia/Kolkata",
+            country: data.business.country || "INDIA",
+            address: data.business.location_address || data.business.address || "",
             description: data.business.description || "",
             created_at: data.business.created_at || "",
             updated_at: data.business.updated_at || "",
@@ -221,7 +230,10 @@ export default function ProfileView({
           phone_no: businessData.phone_no,
           email: businessData.email,
           website_url: businessData.website_url,
-          address: businessData.address,
+          location_address: businessData.location_address || businessData.address,
+          address: businessData.location_address || businessData.address,
+          time_zone: businessData.time_zone,
+          country: businessData.country,
           description: businessData.description,
         },
         admin: {
@@ -467,15 +479,41 @@ export default function ProfileView({
                 />
               </div>
 
-              <div>
+                <div>
                 <label className="block text-xs font-mono text-[#526359] mb-1 font-medium">
-                  Registered Statutory Address
+                  Location Address
                 </label>
                 <input
                   type="text"
-                  value={businessData.address}
-                  onChange={(e) => setBusinessData({ ...businessData, address: e.target.value })}
+                  value={businessData.location_address || businessData.address}
+                  onChange={(e) => setBusinessData({ ...businessData, location_address: e.target.value, address: e.target.value })}
                   placeholder="Level 4, Cyber City, Bangalore 560001"
+                  className="w-full bg-white border border-[#1A2F25]/15 focus:border-[#E06D53] rounded-xl p-2.5 text-xs font-sans text-[#1A2F25] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-[#526359] mb-1 font-medium">
+                  Operating Time Zone
+                </label>
+                <input
+                  type="text"
+                  value={businessData.time_zone || ""}
+                  onChange={(e) => setBusinessData({ ...businessData, time_zone: e.target.value })}
+                  placeholder="Asia/Kolkata"
+                  className="w-full bg-white border border-[#1A2F25]/15 focus:border-[#E06D53] rounded-xl p-2.5 text-xs font-mono text-[#1A2F25] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-[#526359] mb-1 font-medium">
+                  Country of Incorporation
+                </label>
+                <input
+                  type="text"
+                  value={businessData.country || ""}
+                  onChange={(e) => setBusinessData({ ...businessData, country: e.target.value })}
+                  placeholder="INDIA"
                   className="w-full bg-white border border-[#1A2F25]/15 focus:border-[#E06D53] rounded-xl p-2.5 text-xs font-sans text-[#1A2F25] focus:outline-none"
                 />
               </div>

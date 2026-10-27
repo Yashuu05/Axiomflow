@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import AxiomflowLogo from "@/components/AxiomflowLogo";
 
 interface AdminFormData {
   first_name: string;
@@ -22,6 +23,9 @@ interface BusinessFormData {
   phone_no: string;
   email: string;
   website_url: string;
+  location_address: string;
+  time_zone: string;
+  country: string;
   description: string;
 }
 
@@ -69,6 +73,9 @@ export default function SignupPage() {
     phone_no: "",
     email: "",
     website_url: "",
+    location_address: "",
+    time_zone: "Asia/Kolkata",
+    country: "INDIA",
     description: "",
   });
 
@@ -141,6 +148,8 @@ export default function SignupPage() {
     setIsSubmitting(true);
     setErrorMsg(null);
 
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
     const payload = {
       admin: {
         first_name: adminData.first_name.trim(),
@@ -159,12 +168,16 @@ export default function SignupPage() {
         phone_no: businessData.phone_no.trim() || null,
         email: businessData.email.trim() ? businessData.email.trim().toLowerCase() : null,
         website_url: businessData.website_url.trim() || null,
+        location_address: businessData.location_address.trim() || null,
+        address: businessData.location_address.trim() || null,
+        time_zone: businessData.time_zone.trim() || "Asia/Kolkata",
+        country: businessData.country.trim() || "INDIA",
         description: businessData.description.trim() || null,
       }
     };
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/register-business", {
+      const response = await fetch(`${apiBase}/api/register-business`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -215,26 +228,14 @@ export default function SignupPage() {
       {/* Top System Ribbon */}
       <header className="border-b border-[#1A2F25]/10 bg-[#F8F6F2]/90 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 group">
-            <div className="w-5 h-5 bg-[#1A2F25] flex items-center justify-center font-mono text-[10px] text-[#F8F6F2] font-semibold">
-              AX
-            </div>
-            <span className="font-editorial text-2xl tracking-tight text-[#1A2F25] group-hover:text-[#E06D53] transition-colors">
-              Axiomflow
-            </span>
-            <span className="text-[10px] font-mono uppercase tracking-widest text-[#526359] border border-[#1A2F25]/10 px-1.5 py-0.5 ml-2 hidden sm:inline-block">
-              PROFILE_SETUP // V1
-            </span>
+          <Link href="/" className="flex items-center gap-3 group" aria-label="Axiomflow Home">
+            <AxiomflowLogo variant="full" size={28} />
           </Link>
 
           <div className="flex items-center gap-4 text-xs font-mono">
-            <span className="hidden md:inline-flex items-center gap-1.5 text-[#526359]">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
-              RDS_MYSQL: CONNECTED
-            </span>
             <Link
               href="/"
-              className="text-[#526359] hover:text-[#1A2F25] px-3 py-1.5 border border-[#1A2F25]/15 transition-colors"
+              className="text-[#526359] hover:text-[#1A2F25] px-3.5 py-1.5 border border-[#1A2F25]/15 bg-white/60 hover:bg-white transition-colors shadow-2xs"
             >
               &larr; Return to Home
             </Link>
@@ -271,12 +272,12 @@ export default function SignupPage() {
               : "Register Statutory Business Identity."}
           </h1>
 
-          <p className="font-sans text-sm sm:text-base text-[#526359] mt-3 max-w-2xl">
+          <p className="font-sans text-sm sm:text-base text-[#526359] mt-3 max-w-3xl leading-relaxed">
             {successData
               ? "Your corporate credentials and primary administrative representative have been successfully written to the Axiomflow core registry."
               : currentStep === 1
-              ? "Admin accounts retain complete supervisory control over deterministic pipelines, departmental sub-agents, and audit logs."
-              : "Supply legal identity credentials, statutory GSTIN/CIN records, and communication endpoints for relational business pairing."}
+              ? "NOTE: Admin account has full control over system having access to run workflows, connect google services (like Gmail, Calendar, Sheets etc), logs and audit and overall system controls."
+              : "Supply legal identity credentials, statutory GSTIN/CIN records, location address, and communication endpoints for relational business pairing."}
           </p>
 
           {/* Stepper Navigation Pills */}
@@ -287,7 +288,7 @@ export default function SignupPage() {
                 onClick={() => {
                   if (currentStep === 2) setCurrentStep(1);
                 }}
-                className={`flex items-center gap-3 p-3.5 border text-left transition-all ${
+                className={`flex items-center gap-3 p-3.5 border text-left transition-all cursor-pointer ${
                   currentStep === 1
                     ? "border-[#E06D53] bg-white shadow-xs"
                     : "border-[#1A2F25]/15 bg-white/50 opacity-80 hover:opacity-100"
@@ -304,7 +305,7 @@ export default function SignupPage() {
                   <div className="text-xs font-mono uppercase tracking-wider text-[#1A2F25] font-semibold">
                     Admin Account
                   </div>
-                  <div className="text-[11px] text-[#526359]">Representative & Credentials</div>
+                  <div className="text-[11px] text-[#526359]">Representative &amp; Credentials</div>
                 </div>
               </button>
 
@@ -313,7 +314,7 @@ export default function SignupPage() {
                 onClick={() => {
                   if (validateStep1()) setCurrentStep(2);
                 }}
-                className={`flex items-center gap-3 p-3.5 border text-left transition-all ${
+                className={`flex items-center gap-3 p-3.5 border text-left transition-all cursor-pointer ${
                   currentStep === 2
                     ? "border-[#E06D53] bg-white shadow-xs"
                     : "border-[#1A2F25]/15 bg-white/50 opacity-80"
@@ -330,7 +331,7 @@ export default function SignupPage() {
                   <div className="text-xs font-mono uppercase tracking-wider text-[#1A2F25] font-semibold">
                     Business Profile
                   </div>
-                  <div className="text-[11px] text-[#526359]">Entity, Sector & GSTIN / CIN</div>
+                  <div className="text-[11px] text-[#526359]">Entity, Location &amp; GSTIN / CIN</div>
                 </div>
               </button>
             </div>
@@ -424,10 +425,13 @@ export default function SignupPage() {
                     phone_no: "",
                     email: "",
                     website_url: "",
+                    location_address: "",
+                    time_zone: "Asia/Kolkata",
+                    country: "INDIA",
                     description: "",
                   });
                 }}
-                className="px-6 py-3.5 border border-[#1A2F25]/20 hover:bg-white text-[#1A2F25] font-sans text-xs tracking-wider uppercase font-medium transition-all text-center"
+                className="px-6 py-3.5 border border-[#1A2F25]/20 hover:bg-white text-[#1A2F25] font-sans text-xs tracking-wider uppercase font-medium transition-all text-center cursor-pointer"
               >
                 Register Another Entity
               </button>
@@ -441,7 +445,7 @@ export default function SignupPage() {
               <form onSubmit={handleNextStep} className="space-y-6">
                 <div className="border-b border-[#1A2F25]/10 pb-4 mb-6">
                   <span className="font-mono text-xs text-[#E06D53] tracking-widest uppercase block mb-1">
-                    SECTION 01 // IDENTITY & AUTHENTICATION
+                    SECTION 01 // IDENTITY &amp; AUTHENTICATION
                   </span>
                   <h2 className="font-editorial text-2xl text-[#1A2F25]">
                     Administrative Representative Details
@@ -575,13 +579,10 @@ export default function SignupPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-6 border-t border-[#1A2F25]/10">
-                  <span className="font-mono text-xs text-[#526359]">
-                    STAGE 01/02: ADMIN CREDENTIALS
-                  </span>
+                <div className="flex items-center justify-end pt-6 border-t border-[#1A2F25]/10">
                   <button
                     type="submit"
-                    className="px-8 py-3.5 bg-[#E06D53] hover:bg-[#CD5B42] text-white font-sans text-xs tracking-wider uppercase font-semibold transition-all flex items-center gap-2 group"
+                    className="px-8 py-3.5 bg-[#E06D53] hover:bg-[#CD5B42] text-white font-sans text-xs tracking-wider uppercase font-semibold transition-all flex items-center gap-2 group cursor-pointer shadow-xs"
                   >
                     <span>Proceed to Business Profile</span>
                     <svg
@@ -602,10 +603,10 @@ export default function SignupPage() {
               <form onSubmit={handleFinalSubmit} className="space-y-6">
                 <div className="border-b border-[#1A2F25]/10 pb-4 mb-6">
                   <span className="font-mono text-xs text-[#E06D53] tracking-widest uppercase block mb-1">
-                    SECTION 02 // STATUTORY & CORPORATE DETAILS
+                    SECTION 02 // STATUTORY &amp; CORPORATE DETAILS
                   </span>
                   <h2 className="font-editorial text-2xl text-[#1A2F25]">
-                    Business Profile & Statutory Credentials
+                    Business Profile &amp; Statutory Credentials
                   </h2>
                 </div>
 
@@ -633,7 +634,7 @@ export default function SignupPage() {
                       name="sector"
                       value={businessData.sector}
                       onChange={handleBusinessChange}
-                      className="w-full px-4 py-3 bg-[#F8F6F2] border border-[#1A2F25]/20 text-sm font-sans text-[#1A2F25] focus:outline-none focus:border-[#E06D53] focus:bg-white transition-all"
+                      className="w-full px-4 py-3 bg-[#F8F6F2] border border-[#1A2F25]/20 text-sm font-sans text-[#1A2F25] focus:outline-none focus:border-[#E06D53] focus:bg-white transition-all cursor-pointer"
                     >
                       {SECTOR_OPTIONS.map(sec => (
                         <option key={sec} value={sec}>{sec}</option>
@@ -645,7 +646,7 @@ export default function SignupPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   <div>
                     <label className="block font-mono text-xs uppercase tracking-wider text-[#1A2F25] mb-2">
-                      GSTIN (Goods & Services Tax ID) <span className="text-[#E06D53]">*</span>
+                      GSTIN (Goods &amp; Services Tax ID) <span className="text-[#E06D53]">*</span>
                     </label>
                     <input
                       type="text"
@@ -724,9 +725,64 @@ export default function SignupPage() {
                   />
                 </div>
 
+                {/* New Field A: Location Address */}
                 <div>
                   <label className="block font-mono text-xs uppercase tracking-wider text-[#1A2F25] mb-2">
-                    Business Scope & Brief Description
+                    Location Address
+                  </label>
+                  <textarea
+                    rows={2}
+                    name="location_address"
+                    value={businessData.location_address}
+                    onChange={handleBusinessChange}
+                    placeholder="e.g. SR. NO 40/1 Lane No. 3, Dattanagar, Ambegaon B.K, Pune 411046"
+                    className="w-full px-4 py-3 bg-[#F8F6F2] border border-[#1A2F25]/20 text-sm font-sans text-[#1A2F25] placeholder:text-[#526359]/60 focus:outline-none focus:border-[#E06D53] focus:bg-white transition-all resize-none"
+                  />
+                  <p className="mt-1 font-mono text-[11px] text-[#526359]">
+                    Registered statutory or primary corporate facility address.
+                  </p>
+                </div>
+
+                {/* New Fields B & C: Time Zone and Country */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block font-mono text-xs uppercase tracking-wider text-[#1A2F25] mb-2">
+                      Time Zone
+                    </label>
+                    <input
+                      type="text"
+                      name="time_zone"
+                      value={businessData.time_zone}
+                      onChange={handleBusinessChange}
+                      placeholder="e.g. Asia/Kolkata"
+                      className="w-full px-4 py-3 bg-[#F8F6F2] border border-[#1A2F25]/20 text-sm font-sans text-[#1A2F25] placeholder:text-[#526359]/60 focus:outline-none focus:border-[#E06D53] focus:bg-white transition-all"
+                    />
+                    <p className="mt-1 font-mono text-[11px] text-[#526359]">
+                      Operating business time zone (e.g. Asia/Kolkata, UTC, America/New_York).
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block font-mono text-xs uppercase tracking-wider text-[#1A2F25] mb-2">
+                      Country
+                    </label>
+                    <input
+                      type="text"
+                      name="country"
+                      value={businessData.country}
+                      onChange={handleBusinessChange}
+                      placeholder="e.g. INDIA"
+                      className="w-full px-4 py-3 bg-[#F8F6F2] border border-[#1A2F25]/20 text-sm font-sans text-[#1A2F25] placeholder:text-[#526359]/60 focus:outline-none focus:border-[#E06D53] focus:bg-white transition-all"
+                    />
+                    <p className="mt-1 font-mono text-[11px] text-[#526359]">
+                      Country of legal entity incorporation (e.g. INDIA, United States).
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-mono text-xs uppercase tracking-wider text-[#1A2F25] mb-2">
+                    Business Scope &amp; Brief Description
                   </label>
                   <textarea
                     rows={3}
@@ -745,7 +801,7 @@ export default function SignupPage() {
                       setCurrentStep(1);
                       window.scrollTo({ top: 0, behavior: "smooth" });
                     }}
-                    className="px-6 py-3.5 border border-[#1A2F25]/20 hover:bg-[#F8F6F2] text-[#1A2F25] font-sans text-xs tracking-wider uppercase font-semibold transition-all"
+                    className="px-6 py-3.5 border border-[#1A2F25]/20 hover:bg-[#F8F6F2] text-[#1A2F25] font-sans text-xs tracking-wider uppercase font-semibold transition-all cursor-pointer"
                   >
                     &larr; Back to Admin Step
                   </button>
@@ -753,12 +809,12 @@ export default function SignupPage() {
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="px-8 py-3.5 bg-[#E06D53] hover:bg-[#CD5B42] disabled:opacity-50 text-white font-sans text-xs tracking-wider uppercase font-semibold transition-all flex items-center gap-2 group shadow-sm"
+                    className="px-8 py-3.5 bg-[#E06D53] hover:bg-[#CD5B42] disabled:opacity-50 text-white font-sans text-xs tracking-wider uppercase font-semibold transition-all flex items-center gap-2 group shadow-sm cursor-pointer"
                   >
                     {isSubmitting ? (
                       <>
                         <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                        <span>Committing to AWS RDS...</span>
+                        <span>Provisioning Organization...</span>
                       </>
                     ) : (
                       <>
@@ -779,19 +835,6 @@ export default function SignupPage() {
             )}
           </div>
         )}
-
-        {/* Security & System Trust Badge */}
-        <div className="mt-8 border border-[#1A2F25]/10 bg-white/40 p-4 flex flex-col sm:flex-row items-center justify-between gap-3 font-mono text-xs text-[#526359]">
-          <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-[#1A2F25]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="square" strokeLinejoin="miter" strokeWidth="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-            <span>SECURITY: BCRYPT ROUNDS 12 // ZERO-UNSUPERVISED MUTATIONS</span>
-          </div>
-          <div>
-            <span>AWS RDS MySQL: `axiomflow_db` (ap-south-1)</span>
-          </div>
-        </div>
       </main>
 
       {/* Footer */}
@@ -799,15 +842,6 @@ export default function SignupPage() {
         <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono text-[#526359]">
           <div>
             &copy; 2026 Axiomflow System Runtime. All rights reserved.
-          </div>
-          <div className="flex items-center gap-4">
-            <Link href="/" className="hover:text-[#1A2F25]">
-              Homepage
-            </Link>
-            <span>&bull;</span>
-            <Link href="/#architecture" className="hover:text-[#1A2F25]">
-              Architecture
-            </Link>
           </div>
         </div>
       </footer>

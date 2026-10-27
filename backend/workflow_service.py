@@ -167,7 +167,7 @@ def fetch_business_profile_and_user(user_id: str) -> Dict[str, Any]:
                     u.user_id, u.first_name, u.last_name, u.email as user_email,
                     u.role, u.department, u.profession, u.mobile_no, u.business_id,
                     b.business_name, b.sector, b.gstin, b.cin, b.phone_no, b.email as business_email,
-                    b.website_url, b.address, b.description
+                    b.website_url, b.location_address, b.time_zone, b.country, b.address, b.description
                 FROM `users` u
                 LEFT JOIN `business_profile` b ON u.business_id = b.id
                 WHERE u.user_id = %s
@@ -178,6 +178,7 @@ def fetch_business_profile_and_user(user_id: str) -> Dict[str, Any]:
             row = cur.fetchone()
             if row:
                 full_name = f"{row.get('first_name', '')} {row.get('last_name') or ''}".strip()
+                loc_addr = row.get("location_address") or row.get("address") or "---"
                 return {
                     "user_id": row.get("user_id"),
                     "user_name": full_name or "---",
@@ -192,7 +193,10 @@ def fetch_business_profile_and_user(user_id: str) -> Dict[str, Any]:
                     "business_email": row.get("business_email") or row.get("user_email") or "---",
                     "website_url": row.get("website_url") or "---",
                     "phone_no": row.get("phone_no") or "---",
-                    "address": row.get("address") or "---",
+                    "location_address": loc_addr,
+                    "address": loc_addr,
+                    "time_zone": row.get("time_zone") or "Asia/Kolkata",
+                    "country": row.get("country") or "INDIA",
                     "description": row.get("description") or "---"
                 }
     except Exception as e:
@@ -251,7 +255,8 @@ def fetch_full_profile_details(user_id: str) -> Dict[str, Any]:
                     """
                     SELECT 
                         `id`, `business_name`, `sector`, `gstin`, `cin`, 
-                        `phone_no`, `email`, `website_url`, `description`, 
+                        `phone_no`, `email`, `website_url`, `location_address`,
+                        `time_zone`, `country`, `description`, 
                         `address`, `created_at`, `updated_at`
                     FROM `business_profile`
                     WHERE `id` = %s
@@ -310,7 +315,8 @@ def update_profile_details(
             if business_data and business_id:
                 allowed_biz_fields = [
                     "business_name", "sector", "gstin", "cin", 
-                    "phone_no", "email", "website_url", "description", "address"
+                    "phone_no", "email", "website_url", "description",
+                    "location_address", "time_zone", "country", "address"
                 ]
                 updates = []
                 values = []

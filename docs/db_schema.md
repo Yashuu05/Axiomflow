@@ -21,6 +21,9 @@ Stores organization profile and statutory credentials.
 | `phone_no` | `VARCHAR(25)` | `NULL` | Contact phone number |
 | `email` | `VARCHAR(255)` | `NULL` | Official email address |
 | `website_url` | `VARCHAR(500)` | `NULL` | Official website URL |
+| `location_address` | `TEXT` | `NULL` | Organization physical / registered location address |
+| `time_zone` | `VARCHAR(100)` | `NULL`, `DEFAULT 'Asia/Kolkata'` | Operating business time zone (e.g. Asia/Kolkata) |
+| `country` | `VARCHAR(100)` | `NULL`, `DEFAULT 'INDIA'` | Country of incorporation / operations (e.g. INDIA) |
 | `description` | `TEXT` | `NULL` | Business brief description |
 | `created_at` | `TIMESTAMP` | `DEFAULT CURRENT_TIMESTAMP` | Record creation audit timestamp |
 | `updated_at` | `TIMESTAMP` | `DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` | Last updated timestamp |

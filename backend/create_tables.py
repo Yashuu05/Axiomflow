@@ -22,7 +22,11 @@ CREATE TABLE IF NOT EXISTS `business_profile` (
     `phone_no` VARCHAR(25) NULL,
     `email` VARCHAR(255) NULL,
     `website_url` VARCHAR(500) NULL,
+    `location_address` TEXT NULL,
+    `time_zone` VARCHAR(100) NULL DEFAULT 'Asia/Kolkata',
+    `country` VARCHAR(100) NULL DEFAULT 'INDIA',
     `description` TEXT NULL,
+    `address` TEXT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX `idx_business_profile_gstin` (`gstin`)
