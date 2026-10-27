@@ -20,14 +20,14 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: "Axiomflow | Autonomous Business Workflow Runtime",
   description:
-    "Deterministic execution for complex service operations. Coordinate agentic workflows across ticketing, financial reconciliation, and onboarding with strict verification gates and zero hallucinations.",
+    "Autonomous operations for modern business with strict human control. Coordinate agentic workflows across Google Workspace, spreadsheets, and databases with mandatory human-in-the-loop verification gates and zero hallucinations.",
   keywords: [
     "Agentic AI",
     "Business Workflow Automation",
-    "Deterministic AI",
-    "LangGraph",
-    "FastAPI",
-    "Human-in-the-loop",
+    "Google Workspace AI",
+    "Human-in-the-loop AI",
+    "Deterministic Workflow Runtime",
+    "FastMCP",
     "Axiomflow",
   ],
 };
