@@ -51,6 +51,13 @@ export default function WorkflowRunningView({
   const [sheetResult, setSheetResult] = useState<SheetResult | null>(null);
   const [docsResult, setDocsResult] = useState<DocsResult | null>(null);
   const [objective, setObjective] = useState<string>(initialObjective || "---");
+  const [clarificationNeeded, setClarificationNeeded] = useState<{
+    questions?: string[];
+    missing_fields?: string[];
+    reasoning?: string;
+  } | null>(null);
+  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string> | null>(null);
+  const [isSubmittingClarification, setIsSubmittingClarification] = useState<boolean>(false);
 
   // Safety confirmation for stopping a running workflow
   const [confirmStop, setConfirmStop] = useState<boolean>(false);
@@ -66,6 +73,7 @@ export default function WorkflowRunningView({
     const isCurrentlyActive =
       (workflowStatus === "running" ||
         workflowStatus === "waiting_approval" ||
+        workflowStatus === "waiting_clarification" ||
         workflowStatus === "initializing") &&
       !isPaused &&
       !!taskId;
@@ -159,6 +167,15 @@ export default function WorkflowRunningView({
         }
         if (data.docs_result) {
           setDocsResult(data.docs_result);
+        }
+        if (data.clarification_needed) {
+          setClarificationNeeded(data.clarification_needed);
+        }
+        if (data.clarification_answers) {
+          setClarificationAnswers(data.clarification_answers);
+        }
+        if (data.status === "waiting_clarification") {
+          setSelectedStepId("s1");
         }
 
         // Stop polling if reached terminal status
@@ -277,6 +294,29 @@ export default function WorkflowRunningView({
     pollStatus();
   };
 
+  const handleSubmitClarification = async (answers: Record<string, string>, rawAnswer?: string) => {
+    if (!taskId) return;
+    setIsSubmittingClarification(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/workflow/clarify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task_id: taskId,
+          answers,
+          raw_answer: rawAnswer,
+        }),
+      });
+      if (res.ok) {
+        pollStatus();
+      }
+    } catch (err) {
+      console.error("Failed to submit clarification answers:", err);
+    } finally {
+      setIsSubmittingClarification(false);
+    }
+  };
+
   const handleTogglePause = async () => {
     if (!taskId) return;
     try {
@@ -325,7 +365,12 @@ export default function WorkflowRunningView({
 
   const isCompleted = workflowStatus === "completed";
   const isFailed = workflowStatus === "failed" || workflowStatus === "rejected";
-  const isWaiting = workflowStatus === "waiting_approval" || !!waitingStep;
+  const isWaitingApproval = workflowStatus === "waiting_approval" || (Boolean(waitingStep) && waitingStep?.id !== "s1");
+  const isWaitingClarification =
+    workflowStatus === "waiting_clarification" ||
+    (Boolean(waitingStep) && waitingStep?.id === "s1") ||
+    (steps.length > 0 && steps[0].status === "waiting");
+  const isWaiting = isWaitingApproval || isWaitingClarification;
   const isRunning = workflowStatus === "running";
 
   return (
@@ -348,9 +393,32 @@ export default function WorkflowRunningView({
         </div>
       </div>
 
-      {/* Persistent Sticky Supervisory Hold Banner — Visible regardless of active tab/step */}
-      {isWaiting && (
-        <div className="mt-3 px-4 py-2.5 bg-amber-500/10 border border-[#E5A93C] rounded-2xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200 shrink-0">
+      {/* Persistent Sticky Supervisory Clarification Hold Banner */}
+      {isWaitingClarification && (
+        <div className="mt-3 px-4 py-2.5 bg-amber-500/10 border border-[#E5A93C] rounded-2xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200 shrink-0 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-3 w-3 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E5A93C] opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-[#E5A93C]"></span>
+            </span>
+            <span className="text-xs sm:text-sm font-sans font-semibold text-[#1A2F25]">
+              Clarification Required: Insufficient information detected in query. Answer requested questions in Step 1 to continue.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedStepId("s1")}
+            className="px-3.5 py-1 bg-[#E5A93C] hover:bg-[#D4982E] text-white text-xs font-sans font-medium rounded-full transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+          >
+            <span>Answer Questions Now</span>
+            <span>&rarr;</span>
+          </button>
+        </div>
+      )}
+
+      {/* Persistent Sticky Supervisory Outgoing Approval Hold Banner */}
+      {isWaitingApproval && !isWaitingClarification && (
+        <div className="mt-3 px-4 py-2.5 bg-amber-500/10 border border-[#E5A93C] rounded-2xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200 shrink-0 shadow-xs">
           <div className="flex items-center gap-2.5">
             <span className="flex h-3 w-3 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E5A93C] opacity-75"></span>
@@ -403,7 +471,9 @@ export default function WorkflowRunningView({
                 `Workflow Completed · ${formatTime(elapsedSeconds)}`
               ) : isFailed ? (
                 `Workflow Interrupted · ${formatTime(elapsedSeconds)}`
-              ) : isWaiting ? (
+              ) : isWaitingClarification ? (
+                `Awaiting Your Answers · Step 1 of ${steps.length || 6}`
+              ) : isWaitingApproval ? (
                 `Awaiting Human Review · Step ${currentRunningStepIndex + 1} of ${steps.length || 6}`
               ) : (
                 `${isPaused ? "Paused" : "Running"} Step ${
@@ -515,6 +585,11 @@ export default function WorkflowRunningView({
               calendarEvent={calendarEvent || undefined}
               sheetResult={sheetResult || undefined}
               docsResult={docsResult || undefined}
+              clarificationNeeded={clarificationNeeded}
+              clarificationAnswers={clarificationAnswers}
+              onSubmitClarification={handleSubmitClarification}
+              onAbortWorkflow={onStopButtonClick}
+              isSubmittingClarification={isSubmittingClarification}
               onApproveStep={handleApproveStep}
               onRejectStep={handleRejectStep}
               onRetryStep={handleRetryStep}

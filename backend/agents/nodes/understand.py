@@ -46,11 +46,13 @@ def understand_node(state: WorkflowState) -> Dict[str, Any]:
     }
 
 
-def interactive_clarification_node(state: WorkflowState) -> Dict[str, Any]:
+import asyncio
+
+async def interactive_clarification_node(state: WorkflowState) -> Dict[str, Any]:
     """
     Human-In-The-Loop Clarification Node:
     If the request was underspecified, asks all missing questions in a single unified prompt.
-    Supports both interactive terminal input and pre-configured mock answers for tests.
+    Supports interactive web dashboard input, interactive terminal input, and pre-configured mock answers for tests.
     """
     assessment = state.get("sufficiency_assessment") or {}
     questions: List[str] = assessment.get("questions", [])
@@ -67,7 +69,7 @@ def interactive_clarification_node(state: WorkflowState) -> Dict[str, Any]:
     if not questions:
         return {"status": "planning"}
 
-    # Interactive Terminal Input
+    # Interactive Terminal Input / Observability Logging
     print("\n" + "=" * 80)
     print("           SUPERVISOR AGENT: HUMAN-IN-THE-LOOP CLARIFICATION REQUIRED")
     print("=" * 80)
@@ -76,12 +78,32 @@ def interactive_clarification_node(state: WorkflowState) -> Dict[str, Any]:
         print(f"  [{idx}] {q}")
     print("-" * 80)
 
-    # Check if running in web dashboard session or non-interactive environment
+    # Check if running in web dashboard session
     is_web = (
         state.get("is_web_session", False)
         or bool(state.get("task_id") and str(state.get("task_id")).startswith("TSK_"))
         or bool(state.get("run_id") and str(state.get("run_id")).startswith("TSK_"))
     )
+
+    if is_web:
+        task_id = state.get("task_id") or state.get("run_id")
+        import workflow_service
+        workflow_service.set_workflow_waiting_clarification(task_id, assessment)
+        clarification_event = workflow_service.get_or_create_clarification_event(task_id)
+        print(f"[WEB DASHBOARD HITL] Awaiting human input via dashboard interface for task {task_id} (Timeout: 600s)...")
+        is_set = await asyncio.to_thread(clarification_event.wait, 600)
+        if not is_set:
+            print(f"[WARNING] Clarification input timed out after 600s for task {task_id}.")
+            gathered_answers = {}
+        else:
+            gathered_answers = workflow_service.get_clarification_answers(task_id)
+            print(f"[SUCCESS] Received human operator clarification answers for task {task_id}: {gathered_answers}")
+
+        return {
+            "clarification_answers": gathered_answers,
+            "status": "planning"
+        }
+
     is_interactive = hasattr(sys.stdin, "isatty") and sys.stdin.isatty() and not is_web
 
     business_context = state.get("business_context") or {}
@@ -94,7 +116,7 @@ def interactive_clarification_node(state: WorkflowState) -> Dict[str, Any]:
 
     gathered_answers: Dict[str, str] = {}
     if not is_interactive:
-        print(f"[{'WEB SESSION' if is_web else 'NON-INTERACTIVE'} DETECTED] Applying business context defaults for clarification...")
+        print("[NON-INTERACTIVE AUTOMATED TEST DETECTED] Applying business context defaults for clarification...")
         for idx, q in enumerate(questions, 1):
             if "email" in q.lower() or "recipient" in q.lower() or "attendee" in q.lower():
                 gathered_answers[f"question_{idx}"] = default_email
@@ -113,7 +135,7 @@ def interactive_clarification_node(state: WorkflowState) -> Dict[str, Any]:
             gathered_answers[f"question_{idx}"] = ans or "Standard defaults"
 
     print("=" * 80)
-    print(f"[SUCCESS] Clarification answers recorded ({'Automated Web Defaults' if is_web else 'Operator Input'}). Resuming planning...")
+    print("[SUCCESS] Clarification answers recorded. Resuming planning...")
     print("=" * 80 + "\n")
 
     return {

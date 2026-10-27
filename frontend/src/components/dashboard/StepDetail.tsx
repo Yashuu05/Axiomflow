@@ -2,7 +2,13 @@
 
 import { useState, useRef, useEffect } from "react";
 import { WorkflowStep } from "./StepTimeline";
-import { ApprovalCard, FailureCard, ReplanNotice } from "./InlineCards";
+import {
+  ApprovalCard,
+  FailureCard,
+  ReplanNotice,
+  ClarificationCard,
+  ClarificationSummaryCard
+} from "./InlineCards";
 
 export interface DocsResult {
   document_id?: string;
@@ -10,6 +16,12 @@ export interface DocsResult {
   document_url?: string;
   word_count?: number;
   operation?: string;
+}
+
+export interface ClarificationNeeded {
+  questions?: string[];
+  missing_fields?: string[];
+  reasoning?: string;
 }
 
 interface StepDetailProps {
@@ -36,6 +48,11 @@ interface StepDetailProps {
     headers?: string[];
   };
   docsResult?: DocsResult;
+  clarificationNeeded?: ClarificationNeeded | null;
+  clarificationAnswers?: Record<string, string> | null;
+  onSubmitClarification?: (answers: Record<string, string>, rawAnswer?: string) => Promise<void> | void;
+  onAbortWorkflow?: () => void;
+  isSubmittingClarification?: boolean;
   onApproveStep?: (stepId: string) => void;
   onRejectStep?: (stepId: string) => void;
   onRetryStep?: (stepId: string) => void;
@@ -48,6 +65,11 @@ export default function StepDetail({
   calendarEvent,
   sheetResult,
   docsResult,
+  clarificationNeeded,
+  clarificationAnswers,
+  onSubmitClarification,
+  onAbortWorkflow,
+  isSubmittingClarification = false,
   onApproveStep,
   onRejectStep,
   onRetryStep,
@@ -118,7 +140,7 @@ export default function StepDetail({
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#E5A93C]/15 text-[#B8771A] border border-[#E5A93C]/35 text-xs font-mono rounded-full font-medium shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-[#E5A93C] animate-ping"></span>
-            Supervisory Review Required
+            {step.id === "s1" ? "Operator Input Required" : "Supervisory Review Required"}
           </span>
         );
       case "failed":
@@ -146,6 +168,11 @@ export default function StepDetail({
 
   const hasArtifacts = Boolean(calendarEvent || sheetResult || inferredDoc);
 
+  // Check if Step 1 is awaiting clarification
+  const isStep1AwaitingClarification =
+    step.id === "s1" &&
+    (step.status === "waiting" || Boolean(clarificationNeeded && clarificationNeeded.questions && clarificationNeeded.questions.length > 0));
+
   return (
     <div className="flex flex-col h-full bg-white/85 border border-[#1A2F25]/10 rounded-2xl p-5 md:p-6 backdrop-blur-md shadow-sm overflow-hidden">
       {/* Top Header of Step */}
@@ -161,7 +188,7 @@ export default function StepDetail({
         <div>{getStatusBadge()}</div>
       </div>
 
-      {/* Prominent Deterministic Reasoning Callout — Moved above logs for instant explainability */}
+      {/* Prominent Deterministic Reasoning Callout */}
       <div className="my-3 p-3.5 bg-amber-50/70 border border-amber-200/90 rounded-xl shrink-0">
         <div className="flex items-center gap-2 mb-1.5">
           <svg className="w-4 h-4 text-amber-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -179,9 +206,35 @@ export default function StepDetail({
         </p>
       </div>
 
-      {/* Interruption cards */}
-      {step.status === "waiting" && (
+      {/* HITL Interruption Cards */}
+
+      {/* 1. Clarification Card for Step 1 when questions are pending */}
+      {isStep1AwaitingClarification && onSubmitClarification && (
+        <div className="shrink-0 animate-in fade-in slide-in-from-top-1 duration-200">
+          <ClarificationCard
+            questions={clarificationNeeded?.questions || []}
+            missingFields={clarificationNeeded?.missing_fields || []}
+            reasoning={clarificationNeeded?.reasoning}
+            onSubmitAnswers={onSubmitClarification}
+            onCancel={onAbortWorkflow}
+            isSubmitting={isSubmittingClarification}
+          />
+        </div>
+      )}
+
+      {/* 2. Clarification Resolved Summary Card (Shown when Step 1 is completed and answers exist) */}
+      {step.id === "s1" && step.status === "completed" && clarificationAnswers && (
         <div className="shrink-0">
+          <ClarificationSummaryCard
+            questions={clarificationNeeded?.questions}
+            answers={clarificationAnswers}
+          />
+        </div>
+      )}
+
+      {/* 3. Email Approval Card for Step 4 when awaiting approval */}
+      {step.status === "waiting" && step.id !== "s1" && (
+        <div className="shrink-0 animate-in fade-in slide-in-from-top-1 duration-200">
           <ApprovalCard
             subject={emailDraft?.subject}
             to={emailDraft?.to}

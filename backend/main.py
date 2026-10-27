@@ -390,6 +390,11 @@ class WorkflowApprovalPayload(BaseModel):
     user_feedback: Optional[str] = None
     edited_body: Optional[str] = None
 
+class WorkflowClarificationPayload(BaseModel):
+    task_id: str
+    answers: dict = Field(default_factory=dict, description="Answers to questions keyed by question index or question label")
+    raw_answer: Optional[str] = Field(None, description="Consolidated natural language response")
+
 @app.get("/api/logs")
 def get_logs_endpoint(
     limit: int = 50,
@@ -541,6 +546,24 @@ def approve_workflow_endpoint(payload: WorkflowApprovalPayload):
             detail=f"Active approval gateway for task '{payload.task_id}' not found."
         )
     return {"success": True, "message": f"Supervisory clearance '{payload.decision}' registered."}
+
+@app.post("/api/workflow/clarify")
+def clarify_workflow_endpoint(payload: WorkflowClarificationPayload):
+    """Submits user answers to clarification questions requested by the Supervisor Agent."""
+    success = workflow_service.submit_clarification_answers(
+        task_id=payload.task_id,
+        answers=payload.answers,
+        raw_answer=payload.raw_answer
+    )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Active clarification gateway for task '{payload.task_id}' not found."
+        )
+    return {
+        "success": True,
+        "message": f"Clarification answers submitted successfully for task '{payload.task_id}'."
+    }
 
 class WorkflowControlPayload(BaseModel):
     task_id: str

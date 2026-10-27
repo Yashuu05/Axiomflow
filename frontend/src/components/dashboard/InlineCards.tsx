@@ -352,3 +352,394 @@ export function FailureCard({
     </div>
   );
 }
+
+export interface ClarificationCardProps {
+  questions: string[];
+  missingFields?: string[];
+  reasoning?: string;
+  onSubmitAnswers: (answers: Record<string, string>, rawAnswer?: string) => Promise<void> | void;
+  onCancel?: () => void;
+  isSubmitting?: boolean;
+}
+
+export function ClarificationCard({
+  questions = [],
+  missingFields = [],
+  reasoning,
+  onSubmitAnswers,
+  onCancel,
+  isSubmitting = false,
+}: ClarificationCardProps) {
+  // Mode: "structured" (per question) or "consolidated" (single natural language answer)
+  const [mode, setMode] = useState<"structured" | "consolidated">("structured");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [consolidatedText, setConsolidatedText] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const handleAnswerChange = (qKey: string, val: string) => {
+    setAnswers((prev) => ({ ...prev, [qKey]: val }));
+    if (errorMsg) setErrorMsg(null);
+  };
+
+  const handleApplyQuickSuggestion = (qKey: string, suggestion: string) => {
+    setAnswers((prev) => {
+      const existing = prev[qKey]?.trim() || "";
+      if (existing) {
+        return { ...prev, [qKey]: `${existing}, ${suggestion}` };
+      }
+      return { ...prev, [qKey]: suggestion };
+    });
+    if (errorMsg) setErrorMsg(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (mode === "consolidated") {
+      if (!consolidatedText.trim()) {
+        setErrorMsg("Please type your answers or instructions before submitting.");
+        return;
+      }
+      // Populate answers map with the consolidated text
+      const consolidatedAnswers: Record<string, string> = {
+        "consolidated_response": consolidatedText.trim(),
+      };
+      questions.forEach((_q, idx) => {
+        consolidatedAnswers[`question_${idx + 1}`] = consolidatedText.trim();
+      });
+      await onSubmitAnswers(consolidatedAnswers, consolidatedText.trim());
+    } else {
+      // Structured mode: check if at least one question has been answered
+      const filledKeys = Object.keys(answers).filter((k) => answers[k]?.trim());
+      if (filledKeys.length === 0) {
+        setErrorMsg("Please provide answers to the clarification questions to proceed.");
+        return;
+      }
+      // Clean answers map
+      const cleaned: Record<string, string> = {};
+      questions.forEach((q, idx) => {
+        const key = `question_${idx + 1}`;
+        cleaned[key] = answers[key]?.trim() || answers[q]?.trim() || "As per business defaults";
+      });
+      await onSubmitAnswers(cleaned);
+    }
+  };
+
+  const getSmartPlaceholder = (question: string) => {
+    const qLower = question.toLowerCase();
+    if (qLower.includes("email") || qLower.includes("attendee") || qLower.includes("who")) {
+      return "e.g., alex.smith@company.com, sarah.cfo@finance.org";
+    }
+    if (qLower.includes("time") || qLower.includes("date") || qLower.includes("when")) {
+      return "e.g., Tomorrow at 3:30 PM IST (Duration: 45 minutes)";
+    }
+    if (qLower.includes("meet") || qLower.includes("link") || qLower.includes("url") || qLower.includes("platform")) {
+      return "e.g., Auto-generate Google Meet conference link";
+    }
+    if (qLower.includes("agenda") || qLower.includes("body") || qLower.includes("topic") || qLower.includes("subject")) {
+      return "e.g., Discuss Q4 milestones, resource planning, and deliverables";
+    }
+    return "Enter your response...";
+  };
+
+  const getSmartSuggestions = (question: string) => {
+    const qLower = question.toLowerCase();
+    const suggestions: string[] = [];
+    if (qLower.includes("time") || qLower.includes("date") || qLower.includes("when")) {
+      suggestions.push("Tomorrow at 3:00 PM IST", "Tomorrow at 4:30 PM IST", "Duration: 45 mins", "Duration: 1 hour");
+    }
+    if (qLower.includes("meet") || qLower.includes("link") || qLower.includes("url")) {
+      suggestions.push("Auto-generate Google Meet link", "Virtual Google Meet only");
+    }
+    if (qLower.includes("agenda") || qLower.includes("subject") || qLower.includes("body")) {
+      suggestions.push("Team Milestone Sync", "Quarterly Strategy Review", "Project Status Update");
+    }
+    return suggestions;
+  };
+
+  return (
+    <div className="my-3 border-2 border-[#E5A93C]/80 bg-gradient-to-b from-white to-[#F8F6F2]/60 rounded-2xl p-4 sm:p-5 shadow-md transition-all">
+      {/* Header Bar */}
+      <div className="flex flex-wrap items-center justify-between pb-3 border-b border-[#1A2F25]/10 mb-3.5 gap-2">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-3 w-3 relative">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E5A93C] opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-[#E5A93C]"></span>
+          </span>
+          <span className="font-editorial text-xl sm:text-2xl text-[#1A2F25] font-semibold">
+            Clarification Required: Insufficient Information
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-mono uppercase bg-[#E5A93C]/15 text-[#B8771A] border border-[#E5A93C]/35 px-2.5 py-1 rounded-full font-semibold tracking-wider">
+            SUPERVISOR_CLARIFICATION // INPUT_REQUIRED
+          </span>
+        </div>
+      </div>
+
+      {/* Description & Supervisor Rationale Callout */}
+      <div className="mb-4">
+        <p className="text-xs sm:text-sm text-[#526359] leading-relaxed mb-2.5">
+          The Supervisor Agent evaluated your request and detected that critical parameters are missing for deterministic execution. Please provide answers to continue workflow execution.
+        </p>
+
+        {reasoning && (
+          <div className="p-3 bg-amber-50/70 border border-amber-200/90 rounded-xl text-xs text-[#1A2F25] flex items-start gap-2.5 mb-2.5">
+            <svg className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <span className="font-semibold text-amber-900 block mb-0.5">Supervisor Evaluation:</span>
+              <span className="text-[#1A2F25]/85">{reasoning}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Missing Fields Pill Badges */}
+        {missingFields && missingFields.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-[11px] font-mono text-[#526359] uppercase tracking-wide mr-1">
+              Missing Fields:
+            </span>
+            {missingFields.map((field, idx) => (
+              <span
+                key={idx}
+                className="px-2.5 py-0.5 bg-[#E06D53]/10 text-[#CD5B42] border border-[#E06D53]/30 text-[10px] font-mono rounded-full font-semibold shadow-2xs"
+              >
+                {field}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Input Mode Switcher */}
+      <div className="flex items-center justify-between border-b border-[#1A2F25]/10 pb-2 mb-3">
+        <span className="text-xs font-mono text-[#526359] uppercase tracking-wider font-medium">
+          Answer Method:
+        </span>
+        <div className="flex items-center gap-1 bg-[#1A2F25]/5 p-0.5 rounded-lg border border-[#1A2F25]/10 text-xs font-mono">
+          <button
+            type="button"
+            onClick={() => setMode("structured")}
+            className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+              mode === "structured"
+                ? "bg-white text-[#1A2F25] shadow-xs font-semibold"
+                : "text-[#526359] hover:text-[#1A2F25]"
+            }`}
+          >
+            Structured Questions ({questions.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("consolidated")}
+            className={`px-3 py-1 rounded-md transition-all cursor-pointer ${
+              mode === "consolidated"
+                ? "bg-white text-[#1A2F25] shadow-xs font-semibold"
+                : "text-[#526359] hover:text-[#1A2F25]"
+            }`}
+          >
+            Consolidated Answer
+          </button>
+        </div>
+      </div>
+
+      {/* Form Submission */}
+      <form onSubmit={handleSubmit} className="space-y-3.5">
+        {mode === "structured" ? (
+          <div className="space-y-3">
+            {questions.map((question, idx) => {
+              const qKey = `question_${idx + 1}`;
+              const currentVal = answers[qKey] || "";
+              const suggestions = getSmartSuggestions(question);
+
+              return (
+                <div
+                  key={idx}
+                  className="p-3.5 bg-white border border-[#1A2F25]/12 rounded-xl shadow-2xs hover:border-[#E06D53]/40 transition-colors"
+                >
+                  <div className="flex items-start gap-2.5 mb-2">
+                    <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#E5A93C]/20 border border-[#E5A93C]/50 text-[#B8771A] text-[10px] font-mono font-bold shrink-0 mt-0.5">
+                      {idx + 1}
+                    </span>
+                    <label
+                      htmlFor={`input-${qKey}`}
+                      className="font-editorial text-base sm:text-lg text-[#1A2F25] font-medium leading-snug flex-1 cursor-pointer"
+                    >
+                      {question}
+                    </label>
+                  </div>
+
+                  <div className="relative">
+                    <textarea
+                      id={`input-${qKey}`}
+                      rows={2}
+                      value={currentVal}
+                      onChange={(e) => handleAnswerChange(qKey, e.target.value)}
+                      placeholder={getSmartPlaceholder(question)}
+                      disabled={isSubmitting}
+                      className="w-full bg-[#F8F6F2]/60 border border-[#1A2F25]/15 focus:border-[#E06D53] focus:bg-white focus:ring-2 focus:ring-[#E06D53]/20 rounded-lg p-2.5 text-xs sm:text-sm font-sans text-[#1A2F25] placeholder-[#526359]/50 transition-all outline-none resize-y"
+                    />
+                  </div>
+
+                  {/* Quick Clickable Suggestions */}
+                  {suggestions.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                      <span className="text-[10px] font-mono text-[#526359]">Quick fill:</span>
+                      {suggestions.map((sug, sIdx) => (
+                        <button
+                          key={sIdx}
+                          type="button"
+                          onClick={() => handleApplyQuickSuggestion(qKey, sug)}
+                          className="text-[10px] font-sans px-2 py-0.5 rounded-md bg-[#F8F6F2] hover:bg-[#E06D53]/15 text-[#1A2F25] border border-[#1A2F25]/10 hover:border-[#E06D53]/30 transition-colors cursor-pointer"
+                        >
+                          + {sug}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-3.5 bg-white border border-[#1A2F25]/12 rounded-xl shadow-2xs">
+            <div className="flex items-center justify-between mb-2">
+              <label
+                htmlFor="consolidated-input"
+                className="font-editorial text-base text-[#1A2F25] font-medium"
+              >
+                Provide All Missing Details in Natural Language:
+              </label>
+              <span className="text-[10px] font-mono text-[#526359]">
+                {consolidatedText.length} characters
+              </span>
+            </div>
+
+            <textarea
+              id="consolidated-input"
+              rows={4}
+              value={consolidatedText}
+              onChange={(e) => {
+                setConsolidatedText(e.target.value);
+                if (errorMsg) setErrorMsg(null);
+              }}
+              placeholder="e.g., Please schedule the milestone meeting for tomorrow at 4:00 PM IST with dev-team@company.com and sarah@client.com. Generate a Google Meet link and set the agenda to review project deployment."
+              disabled={isSubmitting}
+              className="w-full bg-[#F8F6F2]/60 border border-[#1A2F25]/15 focus:border-[#E06D53] focus:bg-white focus:ring-2 focus:ring-[#E06D53]/20 rounded-lg p-3 text-xs sm:text-sm font-sans text-[#1A2F25] placeholder-[#526359]/50 transition-all outline-none resize-y"
+            />
+            <p className="text-[11px] text-[#526359] mt-2 font-sans">
+              Tip: Include any specific timing, attendee email addresses, and topic overview. The Supervisor Agent will automatically extract these details for planning.
+            </p>
+          </div>
+        )}
+
+        {/* Error Alert */}
+        {errorMsg && (
+          <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2 animate-in fade-in duration-150">
+            <svg className="w-4 h-4 shrink-0 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {/* Form Actions */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2">
+          <div className="text-[11px] font-mono text-[#526359]">
+            Workflow is paused awaiting your answers.
+          </div>
+
+          <div className="flex items-center gap-2">
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={isSubmitting}
+                className="px-4 py-2 border border-[#1A2F25]/20 hover:bg-[#1A2F25]/5 text-[#1A2F25] text-xs font-sans rounded-full transition-colors cursor-pointer"
+              >
+                Abort Workflow
+              </button>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="px-5 py-2 bg-[#E06D53] hover:bg-[#CD5B42] text-white text-xs font-sans font-medium rounded-full transition-all shadow-sm hover:shadow cursor-pointer flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? (
+                <>
+                  <svg className="animate-spin -ml-0.5 h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Submitting Answers...</span>
+                </>
+              ) : (
+                <>
+                  <span>Submit Answers & Continue Workflow</span>
+                  <span>&rarr;</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export function ClarificationSummaryCard({
+  questions = [],
+  answers = {},
+}: {
+  questions?: string[];
+  answers?: Record<string, string>;
+}) {
+  if (!answers || Object.keys(answers).length === 0) return null;
+
+  return (
+    <div className="my-3 border border-emerald-200/90 bg-emerald-50/50 rounded-2xl p-4 shadow-2xs">
+      <div className="flex items-center justify-between pb-2 mb-2 border-b border-emerald-200/80">
+        <div className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-emerald-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+          </svg>
+          <span className="font-editorial text-base text-[#1A2F25] font-semibold">
+            Operator Clarifications Provided
+          </span>
+        </div>
+        <span className="text-[10px] font-mono uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-semibold">
+          RESOLVED
+        </span>
+      </div>
+
+      <div className="space-y-2 text-xs font-mono">
+        {questions.length > 0 ? (
+          questions.map((q, idx) => {
+            const key = `question_${idx + 1}`;
+            const ans = answers[key] || answers[q] || answers["consolidated_response"] || "Provided";
+            return (
+              <div key={idx} className="bg-white/90 p-2.5 rounded-lg border border-emerald-100">
+                <span className="text-[#526359] block text-[11px] mb-0.5">
+                  Q{idx + 1}: {q}
+                </span>
+                <span className="text-[#1A2F25] font-medium block">
+                  &rarr; {ans}
+                </span>
+              </div>
+            );
+          })
+        ) : (
+          Object.entries(answers).map(([k, v], idx) => (
+            <div key={idx} className="bg-white/90 p-2.5 rounded-lg border border-emerald-100">
+              <span className="text-[#526359] block text-[11px] mb-0.5">{k}:</span>
+              <span className="text-[#1A2F25] font-medium block">&rarr; {v}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}

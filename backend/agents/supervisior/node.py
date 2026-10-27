@@ -148,7 +148,7 @@ class SupervisorAgent:
 
         # Ensure steps are populated if model returned an empty list for multi-task
         if not plan.is_policy_rejected and len(plan.steps) == 0:
-            self._synthesize_fallback_steps(plan, request)
+            self._synthesize_fallback_steps(plan, request, clarification_answers=clarification_answers)
 
         self._validate_and_sanitize_plan(plan)
 
@@ -172,7 +172,12 @@ class SupervisorAgent:
 
         return plan
 
-    def _synthesize_fallback_steps(self, plan: SupervisorPlan, request: str) -> None:
+    def _synthesize_fallback_steps(
+        self,
+        plan: SupervisorPlan,
+        request: str,
+        clarification_answers: Optional[Dict[str, str]] = None
+    ) -> None:
         """Synthesizes execution steps if LLM omitted them in structured output."""
         req_lower = request.lower()
         services = set(plan.identified_services)
@@ -231,11 +236,21 @@ class SupervisorAgent:
         ])
         if not has_cal_negation and ("calendar" in services or "meet" in req_lower or "schedule" in req_lower):
             step_id = f"step_{step_idx}"
+            cal_params: Dict[str, Any] = {"title": "Discussion Meeting"}
+            if clarification_answers:
+                for k, v in clarification_answers.items():
+                    if any(t in k.lower() or t in str(v).lower() for t in ["time", "date", "when", "pm", "am", "hour"]):
+                        cal_params["start_time"] = v
+                    if "@" in str(v):
+                        found_emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', str(v))
+                        if found_emails:
+                            cal_params["attendees"] = found_emails
+
             plan.steps.append(StepProposal(
                 id=step_id,
                 capability="calendar.create_event",
                 description="Schedule Google Calendar meeting with Google Meet link",
-                parameters={"title": "Discussion Meeting"},
+                parameters=cal_params,
                 depends_on=[prev_id] if prev_id else [],
                 risk="external_side_effect",
                 requires_approval=True
@@ -247,7 +262,11 @@ class SupervisorAgent:
 
         # 4. Email Steps
         if "gmail" in services or "email" in req_lower or "mail" in req_lower:
-            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', request)
+            combined_context = request
+            if clarification_answers:
+                combined_context += " " + " ".join(str(v) for v in clarification_answers.values())
+
+            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', combined_context)
             recipient = [email_match.group(0)] if email_match else []
 
             draft_id = f"step_{step_idx}"

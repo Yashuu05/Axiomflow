@@ -25,6 +25,8 @@ import threading
 ACTIVE_WORKFLOWS: Dict[str, Dict[str, Any]] = {}
 APPROVAL_EVENTS: Dict[str, threading.Event] = {}
 APPROVAL_DECISIONS: Dict[str, Dict[str, Any]] = {}
+CLARIFICATION_EVENTS: Dict[str, threading.Event] = {}
+CLARIFICATION_ANSWERS: Dict[str, Dict[str, str]] = {}
 PAUSE_EVENTS: Dict[str, threading.Event] = {}
 STOP_SIGNALS: Dict[str, bool] = {}
 
@@ -450,6 +452,57 @@ def get_or_create_approval_event(task_id: str) -> threading.Event:
     return APPROVAL_EVENTS[task_id]
 
 
+def get_or_create_clarification_event(task_id: str) -> threading.Event:
+    """Returns or creates the threading.Event that pauses execution until user provides answers to clarification questions."""
+    if task_id not in CLARIFICATION_EVENTS:
+        CLARIFICATION_EVENTS[task_id] = threading.Event()
+    return CLARIFICATION_EVENTS[task_id]
+
+
+def get_clarification_answers(task_id: str) -> Dict[str, str]:
+    """Retrieves the clarification answers provided via web UI."""
+    return CLARIFICATION_ANSWERS.get(task_id, {})
+
+
+def set_workflow_waiting_clarification(task_id: str, assessment: Dict[str, Any]):
+    """Called by interactive_clarification_node when running in a web session."""
+    if task_id in ACTIVE_WORKFLOWS:
+        ACTIVE_WORKFLOWS[task_id]["status"] = "waiting_clarification"
+        ACTIVE_WORKFLOWS[task_id]["clarification_needed"] = assessment
+        get_or_create_clarification_event(task_id)
+        steps = ACTIVE_WORKFLOWS[task_id].get("steps", [])
+        if len(steps) > 0:
+            steps[0]["status"] = "waiting"
+            steps[0]["subtitle"] = "Needs your answers"
+
+
+def submit_clarification_answers(
+    task_id: str,
+    answers: Dict[str, str],
+    raw_answer: Optional[str] = None
+) -> bool:
+    """Processes user clarification answers to unblock coordinator and resume planning."""
+    if task_id not in ACTIVE_WORKFLOWS:
+        return False
+
+    workflow = ACTIVE_WORKFLOWS[task_id]
+    workflow["clarification_answers"] = answers
+    if raw_answer:
+        workflow["clarification_raw_answer"] = raw_answer
+
+    CLARIFICATION_ANSWERS[task_id] = answers
+
+    # Resume step 0 status indicator to running while planner picks it up
+    steps = workflow.get("steps", [])
+    if len(steps) > 0:
+        steps[0]["status"] = "running"
+        steps[0]["subtitle"] = "Processing your answers..."
+
+    event = get_or_create_clarification_event(task_id)
+    event.set()
+    return True
+
+
 def get_approval_decision(task_id: str) -> Dict[str, Any]:
     """Retrieves the supervisory decision supplied via web UI."""
     return APPROVAL_DECISIONS.get(task_id, {"decision": "accepted"})
@@ -486,6 +539,8 @@ def stop_workflow(task_id: str) -> bool:
         if task_id in APPROVAL_EVENTS:
             APPROVAL_DECISIONS[task_id] = {"decision": "rejected", "user_feedback": "Stopped by supervisor"}
             APPROVAL_EVENTS[task_id].set()
+        if task_id in CLARIFICATION_EVENTS:
+            CLARIFICATION_EVENTS[task_id].set()
         if task_id in PAUSE_EVENTS:
             PAUSE_EVENTS[task_id].set()
         return True
@@ -624,22 +679,45 @@ async def run_workflow_coordinator(task_id: str):
                         return
 
                     log_activity(0, "Policy & ethics guardrails passed (Status: ALLOWED)")
-                    s1_dur = round(time.time() - step1_start, 1)
-                    workflow["steps"][0]["status"] = "completed"
-                    workflow["steps"][0]["duration"] = f"{s1_dur}s"
-                    workflow["steps"][0]["subtitle"] = f"Guardrails verified · {s1_dur}s"
 
-                    workflow["current_step_index"] = 1
-                    workflow["steps"][1]["status"] = "running"
-                    workflow["steps"][1]["subtitle"] = "Synthesizing execution plan..."
-                    step2_start = time.time()
-                    record_log(task_id, query, "Completed", "Step 1: Intent evaluated & guardrails verified (Status: ALLOWED)", "PolicyEthicsGuardrail", "openai/gpt-oss-120b (groq)", s1_dur)
+                    if status == "awaiting_clarification":
+                        assessment_dict = node_output.get("sufficiency_assessment") or {}
+                        workflow["clarification_needed"] = assessment_dict
+                        workflow["status"] = "waiting_clarification"
+                        workflow["steps"][0]["status"] = "waiting"
+                        workflow["steps"][0]["subtitle"] = "Needs your answers"
+                        num_q = len(assessment_dict.get("questions", []))
+                        log_activity(0, f"Supervisor detected insufficient parameters. {num_q} clarification questions requested.")
+                        record_log(task_id, query, "Waiting Clarification", f"Step 1: Insufficient details. Supervisor requested {num_q} clarification answers.", "SupervisorAgent", "openai/gpt-oss-120b (groq)", round(time.time() - step1_start, 1))
+                    else:
+                        s1_dur = round(time.time() - step1_start, 1)
+                        workflow["steps"][0]["status"] = "completed"
+                        workflow["steps"][0]["duration"] = f"{s1_dur}s"
+                        workflow["steps"][0]["subtitle"] = f"Guardrails verified · {s1_dur}s"
+
+                        workflow["current_step_index"] = 1
+                        workflow["steps"][1]["status"] = "running"
+                        workflow["steps"][1]["subtitle"] = "Synthesizing execution plan..."
+                        step2_start = time.time()
+                        record_log(task_id, query, "Completed", "Step 1: Intent evaluated & guardrails verified (Status: ALLOWED)", "PolicyEthicsGuardrail", "openai/gpt-oss-120b (groq)", s1_dur)
 
                 # -------------------------------------------------------------
                 # NODE: clarify_hitl
                 # -------------------------------------------------------------
                 elif node_name == "clarify_hitl":
-                    log_activity(0, "Supervisory clarification parameters resolved.")
+                    answers = node_output.get("clarification_answers") or {}
+                    log_activity(0, f"Clarification parameters provided by user ({len(answers)} fields). Resuming workflow.")
+                    s1_dur = round(time.time() - step1_start, 1)
+                    workflow["steps"][0]["status"] = "completed"
+                    workflow["steps"][0]["duration"] = f"{s1_dur}s"
+                    workflow["steps"][0]["subtitle"] = f"Clarifications resolved · {s1_dur}s"
+                    workflow["status"] = "running"
+
+                    workflow["current_step_index"] = 1
+                    workflow["steps"][1]["status"] = "running"
+                    workflow["steps"][1]["subtitle"] = "Synthesizing execution plan..."
+                    step2_start = time.time()
+                    record_log(task_id, query, "Completed", f"Step 1: Clarification resolved ({len(answers)} answers provided)", "SupervisorAgent", "openai/gpt-oss-120b (groq)", s1_dur)
 
                 # -------------------------------------------------------------
                 # NODE: plan
@@ -992,6 +1070,9 @@ def start_new_workflow(
         "email_draft": None,
         "calendar_event": None,
         "sheet_result": None,
+        "docs_result": None,
+        "clarification_needed": None,
+        "clarification_answers": None,
         "auto_approve": auto_approve,
         "final_response": None,
         "error": None
@@ -999,6 +1080,7 @@ def start_new_workflow(
 
     STOP_SIGNALS[task_id] = False
     APPROVAL_EVENTS[task_id] = threading.Event()
+    CLARIFICATION_EVENTS[task_id] = threading.Event()
 
     # Launch execution in a dedicated daemon thread with its own asyncio loop
     t = threading.Thread(target=lambda: asyncio.run(run_workflow_coordinator(task_id)), daemon=True)
@@ -1034,6 +1116,9 @@ def get_workflow_status(task_id: str) -> Optional[Dict[str, Any]]:
         "email_draft": workflow.get("email_draft"),
         "calendar_event": workflow.get("calendar_event"),
         "sheet_result": workflow.get("sheet_result"),
+        "docs_result": workflow.get("docs_result"),
+        "clarification_needed": workflow.get("clarification_needed"),
+        "clarification_answers": workflow.get("clarification_answers"),
         "final_response": workflow.get("final_response"),
         "error": workflow.get("error")
     }
