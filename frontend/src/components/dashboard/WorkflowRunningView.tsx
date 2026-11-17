@@ -67,6 +67,14 @@ export default function WorkflowRunningView({
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number | null>(null);
+  const rightColumnRef = useRef<HTMLDivElement>(null);
+
+  // When selected step changes, scroll right detail view back to the top
+  useEffect(() => {
+    if (rightColumnRef.current) {
+      rightColumnRef.current.scrollTop = 0;
+    }
+  }, [selectedStepId]);
 
   // Monotonic, drift-free execution stopwatch hook
   useEffect(() => {
@@ -570,7 +578,7 @@ export default function WorkflowRunningView({
         </div>
 
         {/* Right Column: Step Detail */}
-        <div className="md:col-span-7 flex flex-col min-h-0 overflow-hidden">
+        <div ref={rightColumnRef} className="md:col-span-7 flex flex-col min-h-0 h-full overflow-y-auto pr-1">
           {steps.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center p-8 text-center text-[#526359] border border-[#1A2F25]/10 rounded-2xl bg-white/40">
               <p className="font-editorial text-2xl text-[#1A2F25] mb-2">no data available (---)</p>

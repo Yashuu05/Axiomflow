@@ -151,7 +151,7 @@ export function ApprovalCard({
               className="w-full bg-white border border-[#E06D53] p-2.5 text-xs font-sans text-[#1A2F25] focus:outline-none rounded-lg leading-relaxed shadow-inner"
             />
           ) : (
-            <div className="p-3 bg-white border border-[#1A2F25]/8 rounded-lg whitespace-pre-line text-[#1A2F25] text-xs font-sans leading-relaxed">
+            <div className="p-3 bg-white border border-[#1A2F25]/8 rounded-lg whitespace-pre-line text-[#1A2F25] text-xs font-sans leading-relaxed max-h-72 overflow-y-auto">
               {displayBody}
             </div>
           )}
@@ -161,7 +161,7 @@ export function ApprovalCard({
       {/* Action Strip with Rigorous Visual Hierarchy */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
         <span className="text-[11px] font-mono text-[#526359]">
-          Runtime paused pending supervisor clearance.
+          {approved ? "Execution completed · Supervised dispatch recorded." : "Runtime paused pending supervisor clearance."}
         </span>
 
         <div className="flex items-center gap-2">

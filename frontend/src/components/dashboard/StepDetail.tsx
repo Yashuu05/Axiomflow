@@ -77,13 +77,14 @@ export default function StepDetail({
 }: StepDetailProps) {
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedLogs, setCopiedLogs] = useState(false);
-  const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll telemetry console only, without moving the parent view or fighting user scroll
   useEffect(() => {
-    if (autoScroll && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (autoScroll && logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
     }
-  }, [step?.activityLogs, autoScroll]);
+  }, [step?.activityLogs?.length, autoScroll]);
 
   if (!step) {
     return (
@@ -174,7 +175,7 @@ export default function StepDetail({
     (step.status === "waiting" || Boolean(clarificationNeeded && clarificationNeeded.questions && clarificationNeeded.questions.length > 0));
 
   return (
-    <div className="flex flex-col h-full bg-white/85 border border-[#1A2F25]/10 rounded-2xl p-5 md:p-6 backdrop-blur-md shadow-sm overflow-hidden">
+    <div className="flex flex-col min-h-full bg-white/85 border border-[#1A2F25]/10 rounded-2xl p-5 md:p-6 backdrop-blur-md shadow-sm">
       {/* Top Header of Step */}
       <div className="pb-3 border-b border-[#1A2F25]/10 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div>
@@ -232,8 +233,8 @@ export default function StepDetail({
         </div>
       )}
 
-      {/* 3. Email Approval Card for Step 4 when awaiting approval */}
-      {step.status === "waiting" && step.id !== "s1" && (
+      {/* 3. Email Approval Card for Step 4 when awaiting approval or reviewing completed draft */}
+      {((step.status === "waiting" && step.id !== "s1") || (step.id === "s4" && Boolean(emailDraft))) && (
         <div className="shrink-0 animate-in fade-in slide-in-from-top-1 duration-200">
           <ApprovalCard
             subject={emailDraft?.subject}
@@ -243,6 +244,7 @@ export default function StepDetail({
             onApprove={() => onApproveStep?.(step.id)}
             onReject={() => onRejectStep?.(step.id)}
             onSaveEdits={(newBody) => onSaveEdits?.(step.id, newBody)}
+            approved={step.status === "completed"}
           />
         </div>
       )}
@@ -374,7 +376,7 @@ export default function StepDetail({
       )}
 
       {/* Terminal-Grade Streaming Activity Console */}
-      <div className="mt-2 flex-1 flex flex-col min-h-0 overflow-hidden">
+      <div className="mt-3 flex flex-col min-h-[200px] shrink-0">
         <div className="flex items-center justify-between mb-2 shrink-0">
           <div className="flex items-center gap-2">
             <h4 className="font-editorial text-xl text-[#1A2F25]">Execution Telemetry</h4>
@@ -410,12 +412,15 @@ export default function StepDetail({
         </div>
 
         {step.activityLogs.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 border border-dashed border-[#1A2F25]/12 rounded-xl text-center text-xs font-mono text-[#526359] bg-[#F8F6F2]/40">
+          <div className="flex flex-col items-center justify-center p-6 border border-dashed border-[#1A2F25]/12 rounded-xl text-center text-xs font-mono text-[#526359] bg-[#F8F6F2]/40 min-h-[100px]">
             <span className="text-xl mb-1 opacity-60">⏳</span>
             <span>Awaiting step telemetry events from FastMCP...</span>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto space-y-2 border border-[#1A2F25]/10 bg-[#1A2F25]/[0.03] rounded-xl p-3.5 font-mono text-xs shadow-inner">
+          <div
+            ref={logsContainerRef}
+            className="max-h-64 min-h-[140px] overflow-y-auto space-y-2 border border-[#1A2F25]/10 bg-[#1A2F25]/[0.03] rounded-xl p-3.5 font-mono text-xs shadow-inner"
+          >
             {step.activityLogs.map((log, index) => (
               <div
                 key={index}
@@ -429,7 +434,6 @@ export default function StepDetail({
                 </span>
               </div>
             ))}
-            <div ref={logsEndRef} />
           </div>
         )}
       </div>
