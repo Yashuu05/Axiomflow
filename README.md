@@ -1,16 +1,16 @@
 <div align="center">
-<br />
-<div align="center">
-    <img src="frontend/public/logo.png" alt="Logo" width="320" height="180">
+  <br />
+  <img src="frontend/public/logo.png" alt="AxiomFlow Logo" width="320" height="180">
 
-  <h3 align="center">Intelligent Business Automation Workflow</h3>
-</div>
-
-
+  <h3>Autonomous Business Automation & Multi-Agent Orchestration Platform</h3>
+  <p><em>Streamlining enterprise operations across Google Workspace with deterministic LangGraph orchestration, multi-LLM resilience, and human-in-the-loop governance.</em></p>
 
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI%20Async-009688?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com)
-[![React](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite%20%2B%20TS-61DAFB?style=for-the-badge&logo=react)](https://react.dev)
+[![Next.js](https://img.shields.io/badge/Frontend-Next.js%2016%20%2B%20React%2019-black?style=for-the-badge&logo=next.js)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python)](https://python.org)
+[![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph%20%2B%20LangChain-orange?style=for-the-badge)](https://langchain.com)
+[![MySQL](https://img.shields.io/badge/Database-MySQL-4479A1?style=for-the-badge&logo=mysql)](https://mysql.com)
 
 </div>
 
@@ -20,23 +20,159 @@
 
 ---
 
-##  Problem Summary
+## Problem Statement
 
-Small and medium-sized businesses (SMBs) run daily operations across emails, spreadsheets, documents, messaging apps, and separate software tools. Employees lose significant time searching for information, cross-checking records, tracking pending tasks, chasing stakeholders, and copying data between systems.
+Small and medium-sized businesses (SMBs) run day-to-day operations fragmented across emails, spreadsheets, documents, calendars, and siloed software tools. Knowledge workers lose significant time manually tracking pending tasks, cross-referencing customer and financial records, chasing stakeholders for follow-ups, and copy-pasting data between disconnected systems.
 
-Traditional automation (fixed if-then rules) cannot handle this well because real business workflows are dynamic. The next step often depends on information gathered from several sources, and conditions change while the work is in progress.
-
-
-###  Product Vision
-An agentic AI system that understands a business objective, gathers the information it needs from multiple sources, plans the steps, executes them with minimal manual effort, and asks a human for approval when stakes are high. It handles complete multi-step workflows, not single questions.
+Traditional automation tools (rigid if-then rules / basic RPA) cannot adequately handle dynamic enterprise workflows because real business processes are contextual and nondeterministic:
+- The next operational step often depends on synthesizing data gathered dynamically across disparate sources (e.g., matching a client payment record in Google Sheets with a thread in Gmail).
+- Incoming business requests in natural language are frequently underspecified or ambiguous.
+- Fully autonomous AI agents operating without safeguards present significant risks, including hallucinations, unauthorized data modifications, policy violations, and accidental dispatches of sensitive emails.
 
 ---
 
-## 3. Target Users
+## Product Summary & Vision
 
-- **Primary:** Operations or finance staff at an SMB who handle follow-ups, reminders, and record checks.
-- **Secondary:** Team leads and managers who approve actions and review progress.
-- **Demo audience:** Hackathon judges evaluating the agentic behavior and reliability of the system.
+**AxiomFlow** is an enterprise-grade agentic AI orchestration platform designed to transform natural language business objectives into safe, transparent, and deterministic execution pipelines across **Google Workspace** (Gmail, Google Sheets, Google Docs, and Google Calendar).
+
+Rather than granting an LLM unconstrained autonomy, AxiomFlow implements a **supervisor-governed multi-agent system** powered by **LangGraph**. The system autonomously retrieves business context, validates ethics and compliance policies, prompts the user for clarification when critical details are missing, plans optimal action steps, delegates tasks to domain specialists, and enforces mandatory **Human-in-the-Loop (HITL)** approval before any consequential or outward-facing action is taken.
+
+### Key Capabilities
+- **Natural Language Workflow Execution:** Converts complex plain-English requests (e.g., *"Audit overdue invoices in our client sheet, generate a summary doc, schedule a follow-up meeting, and draft tailored reminders"*) into structured multi-step plans.
+- **Interactive Clarification (Pre-Execution HITL):** If an objective is underspecified (e.g., missing recipient email, event duration, or target sheet), the supervisor detects the gap and prompts the user with dynamic input cards before proceeding.
+- **Strict Human-in-the-Loop (HITL) Governance:** High-stakes actions (such as sending emails or executing irreversible data writes) are held in an approval state. Users can review, edit, approve, or reject actions directly from the dashboard.
+- **Provider-Agnostic LLM Resilience:** A centralized model factory supports multiple LLM providers (Google Gemini, Groq, and local Ollama) with automated fallbacks to protect against downtime and rate limits.
+- **Enterprise Multi-Tenant Security & Scoped OAuth:** Google OAuth 2.0 with per-tenant encrypted credential storage (Fernet token vault) and strict least-privilege permission checks.
+- **Real-Time Observability & Telemetry:** Full step-by-step audit logging into MySQL, real-time status streaming via Server-Sent Events (SSE), and desktop/browser notification alerts.
+
+---
+
+## System Architecture
+
+[![Architecture diagram](https://gitdiagram.com/diagram-badge.svg)](https://gitdiagram.com/yashuu05/axiomflow?utm_source=readme&utm_medium=badge)
+
+```mermaid
+%% Generated by https://gitdiagram.com/yashuu05/axiomflow
+flowchart TD
+
+subgraph group_experience["User experience"]
+  node_dashboard["Dashboard<br/>[page.tsx]"]
+  node_api["FastAPI endpoints<br/>[main.py]"]
+end
+
+subgraph group_orchestration["Workflow orchestration"]
+  node_workflow_service["Workflow service"]
+  node_workflow_graph["Workflow graph<br/>[graph.py]"]
+  node_workflow_state["Workflow state<br/>[state.py]"]
+  node_context_retrieval["Business context"]
+  node_supervisor["Supervisor planning<br/>[node.py]"]
+  node_policy["Ethics guardrails<br/>[policies_ethics.py]"]
+  node_model_factory["Resilient models<br/>[model_factory.py]"]
+  node_approval["Approval handling<br/>[approval.py]"]
+  node_execution_nodes["Execution stages<br/>[execute.py]"]
+  node_summarization["Workflow summary<br/>[summarize.py]"]
+end
+
+subgraph group_actions["Business actions"]
+  node_specialists["Task specialists"]
+  node_tool_registry["Agent tool registry<br/>[registry.py]"]
+  node_google_tools["Google service tools"]
+end
+
+subgraph group_services["Platform services"]
+  node_google_oauth["Google OAuth<br/>[google_oauth.py]"]
+  node_client_factory["Google client factory<br/>[client_factory.py]"]
+  node_database[("MySQL database<br/>[database.py]")]
+  node_notifications["Notifications and SSE"]
+end
+
+node_user(("Business user"))
+node_google_services["Google services"]
+
+node_user -.->|"submits request"| node_dashboard
+node_dashboard -.->|"sends requests"| node_api
+node_api -->|"dispatches workflows"| node_workflow_service
+node_workflow_service -->|"invokes graph"| node_workflow_graph
+node_workflow_service -->|"reads and writes"| node_database
+node_workflow_service -->|"notifies"| node_notifications
+node_workflow_graph -->|"uses state"| node_workflow_state
+node_workflow_graph -->|"dispatches to"| node_context_retrieval
+node_workflow_graph -->|"dispatches to"| node_execution_nodes
+node_workflow_graph -->|"dispatches to"| node_approval
+node_workflow_graph -->|"dispatches to"| node_summarization
+node_context_retrieval -->|"reads profile"| node_database
+node_workflow_graph -.->|"plans through"| node_supervisor
+node_supervisor -->|"checks policy"| node_policy
+node_supervisor -->|"uses models"| node_model_factory
+node_execution_nodes -.->|"delegates tasks"| node_specialists
+node_specialists -.->|"uses capabilities"| node_tool_registry
+node_specialists -.->|"calls tools"| node_google_tools
+node_google_tools -->|"builds clients"| node_client_factory
+node_client_factory -->|"loads credentials"| node_database
+node_google_oauth -->|"stores OAuth data"| node_database
+node_client_factory -.->|"authorizes access"| node_google_services
+node_approval -->|"coordinates approval"| node_workflow_service
+
+click node_dashboard "https://github.com/yashuu05/axiomflow/blob/main/frontend/src/app/dashboard/page.tsx"
+click node_api "https://github.com/yashuu05/axiomflow/blob/main/backend/main.py"
+click node_workflow_service "https://github.com/yashuu05/axiomflow/blob/main/backend/workflow_service.py"
+click node_workflow_graph "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/graph.py"
+click node_workflow_state "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/state.py"
+click node_context_retrieval "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/nodes/retrieve_context.py"
+click node_supervisor "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/supervisior/node.py"
+click node_policy "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/policies_ethics.py"
+click node_model_factory "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/model_factory.py"
+click node_approval "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/nodes/approval.py"
+click node_execution_nodes "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/nodes/execute.py"
+click node_summarization "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/nodes/summarize.py"
+click node_specialists "https://github.com/yashuu05/axiomflow/tree/main/backend/agents/specialists"
+click node_tool_registry "https://github.com/yashuu05/axiomflow/blob/main/backend/agents/tools/registry.py"
+click node_google_tools "https://github.com/yashuu05/axiomflow/tree/main/backend/tools"
+click node_google_oauth "https://github.com/yashuu05/axiomflow/blob/main/backend/google_oauth.py"
+click node_client_factory "https://github.com/yashuu05/axiomflow/blob/main/backend/tools/client_factory.py"
+click node_database "https://github.com/yashuu05/axiomflow/blob/main/backend/database.py"
+click node_notifications "https://github.com/yashuu05/axiomflow/blob/main/backend/notification_service.py"
+
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_dashboard,node_api,node_user toneBlue
+class node_workflow_service,node_workflow_graph,node_workflow_state,node_context_retrieval,node_supervisor,node_policy,node_model_factory,node_approval,node_execution_nodes,node_summarization toneAmber
+class node_specialists,node_tool_registry,node_google_tools toneMint
+class node_google_oauth,node_client_factory,node_database,node_notifications toneRose
+class node_google_services toneIndigo
+```
+
+---
+
+## ⚙️ Core Technical Highlights
+
+### 1. State Machine Orchestration (LangGraph & LangChain)
+- State transitions are managed as a deterministic acyclic directed graph via LangGraph (`StateGraph`).
+- Pipeline nodes encompass:
+  1. `retrieve_context`: Fetches business metadata, operational timezone, and registered profile.
+  2. `understand`: Evaluates request feasibility, performs ethics and security policy screening, and identifies missing parameters.
+  3. `clarify_hitl`: Pauses execution if key parameters are absent, rendering an interactive input card on the UI.
+  4. `plan`: Breaks high-level objectives into sequential specialist actions.
+  5. `execute_sheet` / `execute_docs` / `execute_calendar`: Executes Google Workspace actions through typed tools.
+  6. `draft_email` / `approval_hitl`: Uses the Content Specialist to compose emails and halts for human sign-off before dispatching via Gmail.
+  7. `summarize`: Generates an executive summary of completed operations and outcome telemetry.
+
+### 2. Multi-Agent Specialist Division
+- **Supervisor Agent:** Deconstructs goals, verifies compliance against corporate ethics and safety constraints, manages replanning, and synthesizes step execution.
+- **Content Agent:** Drafts professional, context-rich emails and document copy tailored to the recipient persona and tone requirements.
+- **Sheet Agent:** Parses spreadsheet data, inspects headers, filters rows, updates records, and creates new data sheets.
+- **Docs Agent:** Creates structured Google Documents, appends meeting notes, logs records, and formats executive briefs.
+- **Calendar Agent:** Validates schedule availability, handles conflicts, and books Google Calendar events with automated Google Meet conferencing.
+
+### 3. Enterprise Integration & Security
+- **OAuth 2.0 Integration:** Multi-tenant token management storing encrypted access and refresh tokens.
+- **Token Vault:** Uses Python cryptography (Fernet AES) to securely encrypt sensitive OAuth tokens at rest in MySQL.
+- **Role-Based Access & Policy Enforcement:** Safeguards against prompt injection, unauthorized financial commitments, and high-risk communication dispatches.
 
 ---
 
@@ -45,28 +181,179 @@ An agentic AI system that understands a business objective, gathers the informat
 ```text
 business_automation_workflow/
 ├── backend/
-|
-├── frontend/                   
+│   ├── agents/
+│   │   ├── nodes/              # LangGraph execution nodes (understand, plan, execute, approval, etc.)
+│   │   ├── specialists/        # Specialized agents (calendar, content, docs, sheet)
+│   │   ├── supervisor/         # Central supervisor logic and sufficiency evaluation
+│   │   ├── tools/              # Tool registry and capability mappings
+│   │   ├── config.py           # Agent and model configurations
+│   │   ├── graph.py            # LangGraph state machine definitions and routing logic
+│   │   ├── model_factory.py    # Multi-provider LLM factory (Gemini, Groq, Ollama)
+│   │   ├── policies_ethics.py  # Safety guardrails, prompt defense, and policy filters
+│   │   └── state.py            # Typed state schemas for workflow orchestration
+│   ├── tests/                  # Integration and unit test suite
+│   ├── tools/                  # Google Workspace API integration tools (Gmail, Calendar, Sheets, Docs)
+│   ├── create_tables.py        # Database schema initialization and migration scripts
+│   ├── database.py             # Database connection pool manager
+│   ├── google_oauth.py         # Google OAuth 2.0 endpoints and callback handlers
+│   ├── main.py                 # FastAPI application and endpoint definitions
+│   ├── notification_service.py # Desktop notifications (Plyer) & Server-Sent Events (SSE)
+│   ├── token_vault.py          # Fernet cryptographic token encryption vault
+│   └── workflow_service.py     # Real-time workflow dispatch, HITL signaling, and logging
+├── frontend/
 │   ├── src/
-|   |   |── app/
-│   │   ├── components/   
-|   |   |       |── ArchitectureShowcase.tsx      
-│   │   ├── lib/                # Firebase client, API fetchers, auth context
-│   │   ├── pages/              # 12 application pages (Dashboard, CreditProfile, Schemes, etc.)
-│   │   └── index.css           # FinBridge design system tokens (FinGreen, FinAmber, Slate Glass)
-│   ├── package.json            # Node.js dependencies
-│   └── vite.config.ts          # Vite build configuration
-├── screenshots/                # High-resolution screenshots of the FinBridge platform
-├── docs/                       # Architecture, API specifications, and judge Q&A
-├── Design.md                   # Visual design system specifications
-├── PROJECT.md                  # Comprehensive platform reference & developer guide
-├── script.md                   # 12-page step-by-step hackathon demo presentation script
+│   │   ├── app/                # Next.js App Router (Landing page, Auth, Dashboard)
+│   │   │   ├── dashboard/      # Interactive dashboard page
+│   │   │   ├── signin/         # User authentication page
+│   │   │   └── signup/         # Business registration page
+│   │   └── components/         # Modular React components
+│   │       ├── dashboard/      # Workflow timeline, step detail, inline HITL cards, logs, notifications
+│   │       ├── ArchitectureShowcase.tsx
+│   │       ├── InteractiveSandbox.tsx
+│   │       └── Navbar.tsx, HeroSection.tsx, etc.
+│   ├── public/                 # Static assets, branding, and logos
+│   ├── package.json            # Frontend dependencies (Next.js 16, React 19, Tailwind CSS)
+│   └── tsconfig.json           # TypeScript configuration
+├── docs/                       # Architecture specifications, PRDs, and implementation guides
+├── requirements.txt            # Python dependencies
 └── README.md                   # This file
 ```
+
+---
+
+## Technology Stack
+
+| Layer | Technology | Purpose |
+|---|---|---|
+| **Frontend** | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS | High-performance interactive dashboard, real-time workflow visualizer, and HITL decision cards |
+| **Backend API** | FastAPI (Async Python 3.11+), Pydantic v2 | High-throughput async REST API, OAuth router, SSE real-time streaming |
+| **Agentic Framework** | LangChain, LangGraph | Stateful workflow routing, cyclic graph execution, checkpointing, multi-agent coordination |
+| **LLM Providers** | Google Gemini (`gemini-2.5-flash`), Groq (`llama-3.3-70b`), Ollama | Resilient model fallback layer with centralized factory architecture |
+| **Third-Party APIs** | Google Workspace APIs (Gmail, Drive, Sheets, Docs, Calendar) | Native enterprise tool execution via authenticated Google OAuth 2.0 |
+| **Database** | MySQL (PyMySQL) | Relational persistence for user accounts, business profiles, workflow state, and step audit logs |
+| **Security** | Fernet (AES-128-CBC / HMAC-SHA256), Bcrypt | At-rest OAuth token encryption and secure credential hashing |
+| **Notifications** | Server-Sent Events (SSE), Plyer | Real-time streaming status updates to frontend and native OS desktop alerts |
+
+---
+
+## Getting Started
+
+### Prerequisites
+- **Python 3.11+** installed
+- **Node.js 18+** & **npm** installed
+- **MySQL Server** installed and running
+- **Google Cloud Console Project** with OAuth 2.0 Credentials enabled for:
+  - Gmail API
+  - Google Calendar API
+  - Google Sheets API
+  - Google Docs API
+  - Google Drive API
+- API Keys for **Gemini** and/or **Groq** (or a local **Ollama** instance)
+
+---
+
+### Backend Setup
+
+1. **Navigate to the backend directory and activate a virtual environment:**
+   ```bash
+   cd backend
+   python -m venv .venv
+   # Windows:
+   .venv\Scripts\activate
+   # macOS/Linux:
+   source .venv/bin/activate
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   pip install -r ../requirements.txt
+   ```
+
+3. **Configure Environment Variables:**
+   Create a `.env` file in the project root (or inside `backend/`):
+   ```env
+   # Database Configuration
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_USER=root
+   DB_PASSWORD=your_password
+   DB_NAME=axiomflow_db
+
+   # LLM Providers
+   DEFAULT_LLM_PROVIDER=gemini
+   GEMINI_API_KEY=your_gemini_api_key
+   GROQ_API_KEY=your_groq_api_key
+
+   # Google OAuth 2.0
+   GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your_google_client_secret
+   GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+
+   # Security
+   TOKEN_ENCRYPTION_KEY=your_fernet_32_byte_base64_key
+   ```
+
+4. **Initialize Database Tables:**
+   ```bash
+   python create_tables.py
+   ```
+
+5. **Start the FastAPI server:**
+   ```bash
+   python main.py
+   # Or using uvicorn directly:
+   uvicorn main:app --reload --port 8000
+   ```
+   The API will be accessible at `http://localhost:8000` (Swagger docs at `/docs`).
+
+---
+
+### Frontend Setup
+
+1. **Navigate to the frontend directory:**
+   ```bash
+   cd frontend
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Configure Frontend Environment:**
+   Create a `.env.local` file in `frontend/`:
+   ```env
+   NEXT_PUBLIC_API_URL=http://localhost:8000
+   ```
+
+4. **Run the Next.js development server:**
+   ```bash
+   npm run dev
+   ```
+   Open `http://localhost:3000` in your browser.
+
+---
+
+## Testing & Verification
+
+AxiomFlow features a comprehensive test suite covering unit operations, multi-agent workflows, and end-to-end integration:
+
+```bash
+# Run unit & agent pipeline tests
+pytest backend/tests/test_agent_fundamentals.py
+pytest backend/tests/test_sheets_crud_mcp.py
+pytest backend/tests/test_calendar_lifecycle_mcp.py
+pytest backend/tests/test_docs_agent_mcp.py
+
+# Test HITL Clarification & Approval pipelines
+pytest backend/tests/test_clarification_hitl_workflow.py
+pytest backend/tests/test_policies_ethics_guardrails.py
+```
+
 ---
 
 <div align="center">
 
-Made with ❤️ by Yash Chillal**
+Made with ❤️ by **Yash Chillal**
 
 </div>
